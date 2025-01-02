@@ -149,16 +149,6 @@ def save_to_h5(output_dir, sim, traffic_type, traffic_load, iteration, DCFdelay)
         # f.create_dataset('DCFdelay', data=DCFdelay, compression="gzip")   # with compression
 
 
-
-"""
-1---> select simulation_system = 'DCF' or simulation_system = 'CSR'
-2---> set validation = 'yes'
-3---> high traffic load to guarantee saturation, e.g., traffic_load = 5000E6;
-4---> NOTE: traffic_load high enough to achieve saturation (3000) and control the sim
-      duration by setting event number high enough (32000000) or manually with timestamp_to_stop (100)
-"""
-
-
 # Start Timer
 start_time = time.time()
 
@@ -166,17 +156,17 @@ start_time = time.time()
 simulation_system = 'DCF'    # Define the system simulation system (DCF, CSR)
 validationFlag = 'no'
 
-# traffic_types = ['Poisson', 'Bursty', 'VR']
-# traffic_loads = {
-#     'Poisson': ['low', 'medium', 'high'],
-#     'Bursty': ['low', 'medium', 'high'],
-#     'VR': ['30-60', '30-90', '30-120']
-# }
-
-traffic_types = ['VR']
+traffic_types = ['Poisson', 'Bursty', 'VR']
 traffic_loads = {
-    'VR': ['30-120']
+    'Poisson': ['low', 'medium', 'high'],
+    'Bursty': ['low', 'medium', 'high'],
+    'VR': ['30-60', '30-90', '30-120']
 }
+
+# traffic_types = ['VR']
+# traffic_loads = {
+#     'VR': ['30-120']
+# }
 
 
 # Scenario-related
@@ -198,31 +188,21 @@ L = 12E3
 
 iterations = 100
 
-
 ### Channel-related parameters
 MaxTxPower, Nsc = TXpowerCalc(BW, Nss)
 
-# # Seed for reproducibility
-# rndGeneration = {
-#     '20metros-8STAs': 1, 
-#     '20metros-16STAs': 2,
-#     '30metros-16STAs': 3,
-# }
-# np.random.seed(rndGeneration[sim])
-
-
-# Load deployment data
+### Load deployment data
 h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
 with h5py.File(h5file_deployments_path, 'r') as f:
     STA_matrix_save = f['STA_matrix_save'][:]
     channelMatrix_save = f['channelMatrix_save'][:]
     RSSI_dB_vector_to_export_save = f['RSSI_dB_vector_to_export_save'][:]
 
-# Output directory    
+### Output directory    
 output_dir = os.path.join(os.getcwd(), 'Results/Simulation')
 
 # Run simulations with progress bar
-max_workers = 1  # Adjust the number of workers as needed
+max_workers = 8  # Adjust the number of workers as needed
 with ProcessPoolExecutor(max_workers=max_workers) as executor:
     for traffic_type in traffic_types:
         for traffic_load in traffic_loads[traffic_type]:
@@ -236,7 +216,7 @@ with ProcessPoolExecutor(max_workers=max_workers) as executor:
             for i, future in enumerate(tqdm(futures, desc=f"{traffic_type} {traffic_load}", unit=" iteration")):
                 try:
                     DCFdelay = future.result()
-                    # save_to_h5(output_dir, sim, traffic_type, traffic_load, i, DCFdelay)
+                    save_to_h5(output_dir, sim, traffic_type, traffic_load, i, DCFdelay)
                 except Exception as e:
                     print(f"Error in iteration {i} for {traffic_type} {traffic_load}: {e}")
 
