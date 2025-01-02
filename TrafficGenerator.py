@@ -183,82 +183,81 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration, STA_matrix_sa
                                             per_STA_DCF_throughput_bianchi)
     return STAs_arrivals_matrix
 
+# main function
+if __name__ == "__main__":
+    # Start Timer
+    start_time = time.time()
+
+    ###### Input parameters
+    validation_flag = 'no'
+    EDCAaccessCategory = 'VI'
+    traffic_types = ['Poisson', 'Bursty', 'VR']
+    traffic_loads = {
+        'Poisson': ['low', 'medium', 'high'],
+        'Bursty': ['low', 'medium', 'high'],
+        'VR': ['30-60', '30-90', '30-120']
+    }
+
+    # Scenario-related
+    AP_number = 4
+    STA_number = 16
+    grid_value = 60
+    scenario_type = 'grid'
+    sim = '30metros-16STAs'
+    walls = np.array([[0, grid_value, grid_value/2, grid_value/2], 
+                    [grid_value/2, grid_value/2, 0, grid_value]])
+
+    # System-related parameters
+    TXOP_duration = 5E-3
+    Pn_dBm = -95
+    Cca = -82
+    BW = 80
+    Nss = 2
+    L = 12E3
+
+    iterations = 100
 
 
+    ### Channel-related parameters
+    MaxTxPower, Nsc = TXpowerCalc(BW, Nss)
 
-# Start Timer
-start_time = time.time()
+    # Seed for reproducibility
+    rndGeneration = {
+        '20metros-8STAs': 1, 
+        '20metros-16STAs': 2,
+        '30metros-16STAs': 3,
+    }
+    np.random.seed(rndGeneration[sim])
 
-###### Input parameters
-validation_flag = 'no'
-EDCAaccessCategory = 'VI'
-traffic_types = ['Poisson', 'Bursty', 'VR']
-traffic_loads = {
-    'Poisson': ['low', 'medium', 'high'],
-    'Bursty': ['low', 'medium', 'high'],
-    'VR': ['30-60', '30-90', '30-120']
-}
+    # Load deployment data
+    h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
+    with h5py.File(h5file_deployments_path, 'r') as f:
+        STA_matrix_save = f['STA_matrix_save'][:]
+        channelMatrix_save = f['channelMatrix_save'][:]
+        RSSI_dB_vector_to_export_save = f['RSSI_dB_vector_to_export_save'][:]
 
-# Scenario-related
-AP_number = 4
-STA_number = 16
-grid_value = 60
-scenario_type = 'grid'
-sim = '30metros-16STAs'
-walls = np.array([[0, grid_value, grid_value/2, grid_value/2], 
-                  [grid_value/2, grid_value/2, 0, grid_value]])
+    # Output directory    
+    output_dir = os.path.join(os.getcwd(), 'traffic datasets')
 
-# System-related parameters
-TXOP_duration = 5E-3
-Pn_dBm = -95
-Cca = -82
-BW = 80
-Nss = 2
-L = 12E3
+    # Run simulations with progress bar
+    max_workers = 8  # Adjust the number of workers as needed
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        for traffic_type in traffic_types:
+            for traffic_load in traffic_loads[traffic_type]:
+                futures = [
+                    executor.submit(
+                        simulate_iteration, sim, traffic_type, traffic_load, i, 
+                        STA_matrix_save, channelMatrix_save, RSSI_dB_vector_to_export_save
+                    )
+                    for i in range(iterations)
+                ]
+                for i, future in enumerate(tqdm(futures, desc=f"{traffic_type} {traffic_load}", unit=" iteration")):
+                    try:
+                        STAs_arrivals_matrix = future.result()
+                        save_to_h5(output_dir, sim, traffic_type, traffic_load, i, STAs_arrivals_matrix)
+                    except Exception as e:
+                        print(f"Error in iteration {i} for {traffic_type} {traffic_load}: {e}")
 
-iterations = 100
-
-
-### Channel-related parameters
-MaxTxPower, Nsc = TXpowerCalc(BW, Nss)
-
-# Seed for reproducibility
-rndGeneration = {
-    '20metros-8STAs': 1, 
-    '20metros-16STAs': 2,
-    '30metros-16STAs': 3,
-}
-np.random.seed(rndGeneration[sim])
-
-# Load deployment data
-h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
-with h5py.File(h5file_deployments_path, 'r') as f:
-    STA_matrix_save = f['STA_matrix_save'][:]
-    channelMatrix_save = f['channelMatrix_save'][:]
-    RSSI_dB_vector_to_export_save = f['RSSI_dB_vector_to_export_save'][:]
-
-# Output directory    
-output_dir = os.path.join(os.getcwd(), 'traffic datasets')
-
-# Run simulations with progress bar
-max_workers = 8  # Adjust the number of workers as needed
-with ProcessPoolExecutor(max_workers=max_workers) as executor:
-    for traffic_type in traffic_types:
-        for traffic_load in traffic_loads[traffic_type]:
-            futures = [
-                executor.submit(
-                    simulate_iteration, sim, traffic_type, traffic_load, i, 
-                    STA_matrix_save, channelMatrix_save, RSSI_dB_vector_to_export_save
-                )
-                for i in range(iterations)
-            ]
-            for i, future in enumerate(tqdm(futures, desc=f"{traffic_type} {traffic_load}", unit=" iteration")):
-                try:
-                    STAs_arrivals_matrix = future.result()
-                    save_to_h5(output_dir, sim, traffic_type, traffic_load, i, STAs_arrivals_matrix)
-                except Exception as e:
-                    print(f"Error in iteration {i} for {traffic_type} {traffic_load}: {e}")
-
-# End Timer and print elapsed time
-end_time = time.time()
-print(f"Simulation took {end_time - start_time:.2f} seconds")
+    # End Timer and print elapsed time
+    end_time = time.time()
+    print(f"Simulation took {end_time - start_time:.2f} seconds")

@@ -11,6 +11,8 @@ from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
 from AuxiliarFunctions import *
 from MAPCsim import *
+from TrafficGenerator import TrafficGenerator, poisson_fixed_events, generate_burst_traffic, generate_vr_traffic
+
 
 
 def simulate_iteration(sim, traffic_type, traffic_load, iteration):
@@ -46,26 +48,36 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration):
     # Plot deployment
     # PlotDeployment(AP_matrix, STA_matrix, association, grid_value, walls)
 
-    # Channel matrix  
-    # channelMatrix = channelMatrix_save[:, :, iteration]
+    # Channel matrix. Uncomment if using pre-saved channel matrix.  
+    channelMatrix = channelMatrix_save[:, :, iteration]
 
-    # Compute the channelMatrix and RSSI_dB_vector_to_export if they aren't provided
-    channelMatrix, _ = GetChannelMatrix(MaxTxPower, Cca, AP_matrix, STA_matrix, scenario_type, walls, checkSegmentIntersection, Getloss)
+    # RSSI vector. Uncomment if using pre-saved RSSI vector.
+    RSSI_dB_vector_to_export = RSSI_dB_vector_to_export_save[:, :, iteration]
+
+    # Compute the channelMatrix and RSSI_dB_vector_to_export if they aren't provided as pre-saved datasets
+    # channelMatrix, RSSI_dB_vector_to_export = GetChannelMatrix(MaxTxPower, Cca, AP_matrix, STA_matrix, scenario_type, walls, checkSegmentIntersection, Getloss)
     
     # Compute the overheads
     preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads = OverheadsCalc(EDCAaccessCategory)
 
     CGs_STAs, TxPowerMatrix = CG_creationTPC(AP_number, STA_number, CSRoverheads, Pn_dBm, Nsc, Nss, association, channelMatrix, MaxTxPower, TXOP_duration) 
     
+    per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(AP_number, STA_number, association, RSSI_dB_vector_to_export, Pn_dBm, Nsc, Nss, TXOP_duration, 
+                                                            DCFoverheads, EDCAaccessCategory)
     # Simulation duration
     timestamp_to_stop = 5
+    
+    ### Traffic dataset
 
+    # Load the traffic dataset. Uncomment if using pre-saved dataset.
     h5_file_path = os.path.join(os.getcwd(), 'traffic datasets', sim, traffic_type, traffic_load, f"STAs_arrivals_matrix{iteration}.h5")
-
     # Open and load the dataset
     with h5py.File(h5_file_path, 'r') as h5file:
       STAs_arrivals_matrix = np.array([h5file[key][:] for key in h5file.keys()])
-    
+
+    # Generate the traffic dataset for the current iteration. Comment if using pre-saved dataset.
+    # STAs_arrivals_matrix = TrafficGenerator(STA_number, validationFlag, traffic_type, traffic_load, L, per_STA_DCF_throughput_bianchi)   
+
     # Set the seed
     seed = 1
 
@@ -117,20 +129,20 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration):
     simTAT.InitSettings()  # Initializing STAs
     simTAT.Start()
     
-    print(f'Iteration: {iteration}')
-    print(f'DCF 50th {np.percentile(simDCF.delayvector,50)*1000}')
-    print(f'DCF 99th {np.percentile(simDCF.delayvector,99)*1000}')
-    print(f'MNP 50th {np.percentile(simMNP.delayvector,50)*1000}')
-    print(f'MNP 99th {np.percentile(simMNP.delayvector,99)*1000}')
-    print(f'OP 50th {np.percentile(simOP.delayvector,50)*1000}')
-    print(f'OP 99th {np.percentile(simOP.delayvector,99)*1000}')
-    print(f'TAT 50th {np.percentile(simTAT.delayvector,50)*1000}')
-    print(f'TAT 99th {np.percentile(simTAT.delayvector,99)*1000}')
-    print('-----------------------------------------')
+    # print(f'Iteration: {iteration}')
+    # print(f'DCF 50th {np.percentile(simDCF.delayvector,50)*1000}')
+    # print(f'DCF 99th {np.percentile(simDCF.delayvector,99)*1000}')
+    # print(f'MNP 50th {np.percentile(simMNP.delayvector,50)*1000}')
+    # print(f'MNP 99th {np.percentile(simMNP.delayvector,99)*1000}')
+    # print(f'OP 50th {np.percentile(simOP.delayvector,50)*1000}')
+    # print(f'OP 99th {np.percentile(simOP.delayvector,99)*1000}')
+    # print(f'TAT 50th {np.percentile(simTAT.delayvector,50)*1000}')
+    # print(f'TAT 99th {np.percentile(simTAT.delayvector,99)*1000}')
+    # print('-----------------------------------------')
 
-    return simDCF.delayvector
+    return simDCF.delayvector, simMNP.delayvector, simOP.delayvector, simTAT.delayvector
 
-def save_to_h5(output_dir, sim, traffic_type, traffic_load, iteration, DCFdelay):
+def save_to_h5(output_dir, sim, traffic_type, traffic_load, iteration, DCFdelay, MNPdelay, OPdelay, TATdelay):
     """
     Saves the the delay vectors into individual HDF5 files in a structured directory.
     """
@@ -139,11 +151,14 @@ def save_to_h5(output_dir, sim, traffic_type, traffic_load, iteration, DCFdelay)
     os.makedirs(output_path, exist_ok=True)
 
     # Save the current iteration to its own HDF5 file
-    h5_file_path = os.path.join(output_path, f"DCFdelay.h5")
+    h5_file_path = os.path.join(output_path, f"delay.h5")
     # Save data to HDF5 file
     with h5py.File(h5_file_path, 'w') as f:
         f.create_dataset('DCFdelay', data=DCFdelay)
         # f.create_dataset('DCFdelay', data=DCFdelay, compression="gzip")   # with compression
+        f.create_dataset('MNPdelay', data=MNPdelay)
+        f.create_dataset('OPdelay', data=OPdelay)
+        f.create_dataset('TATdelay', data=TATdelay)
 
 
 # Start Timer
@@ -189,17 +204,17 @@ iterations = 100
 MaxTxPower, Nsc = TXpowerCalc(BW, Nss)
 
 # ### Load deployment data
-# h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
-# with h5py.File(h5file_deployments_path, 'r') as f:
-#     STA_matrix_save = f['STA_matrix_save'][:]
-#     channelMatrix_save = f['channelMatrix_save'][:]
-#     # RSSI_dB_vector_to_export_save = f['RSSI_dB_vector_to_export_save'][:]
+h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
+with h5py.File(h5file_deployments_path, 'r') as f:
+    STA_matrix_save = f['STA_matrix_save'][:]
+    channelMatrix_save = f['channelMatrix_save'][:]
+    RSSI_dB_vector_to_export_save = f['RSSI_dB_vector_to_export_save'][:]
 
 ### Output directory    
 output_dir = os.path.join(os.getcwd(), 'Results/Simulation')
 
 # Run simulations with progress bar
-max_workers = 1  # Adjust the number of workers as needed
+max_workers = 8  # Adjust the number of workers as needed
 with ProcessPoolExecutor(max_workers=max_workers) as executor:
     for traffic_type in traffic_types:
         for traffic_load in traffic_loads[traffic_type]:
@@ -213,8 +228,8 @@ with ProcessPoolExecutor(max_workers=max_workers) as executor:
             ]
             for i, future in enumerate(tqdm(futures, desc=f"{traffic_type} {traffic_load}", unit=" iteration")):
                 try:
-                    DCFdelay = future.result()
-                    # save_to_h5(output_dir, sim, traffic_type, traffic_load, i, DCFdelay)
+                    DCFdelay, MNPdelay, OPdelay, TATdelay = future.result()
+                    save_to_h5(output_dir, sim, traffic_type, traffic_load, i, DCFdelay, MNPdelay, OPdelay, TATdelay)
                 except Exception as e:
                     print(f"Error in iteration {i} for {traffic_type} {traffic_load}: {e}")
 
