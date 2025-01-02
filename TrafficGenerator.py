@@ -74,26 +74,51 @@ def generate_burst_traffic(STA_number, event_number, traffic_generation_rate):
     Generate bursty traffic arrivals for each STA.
     """
     STAs_arrivals_matrix = []
+
+    # Average ON and OFF times
     average_on_time = 1E-3
     average_off_time = 10E-3
+
+    # Expected proportion of time spent in the ON state
     on_off_ratio = average_on_time / (average_on_time + average_off_time)
-    adjusted_rate = traffic_generation_rate / on_off_ratio
 
-    for _ in range(STA_number):
-        arrival_times = []
-        current_time = 0
-        while len(arrival_times) < event_number:
-            # ON period
-            on_duration = np.random.exponential(average_on_time)
-            packets_in_burst = int(on_duration * adjusted_rate)
-            inter_arrival_times = np.random.exponential(scale=1/adjusted_rate, size=packets_in_burst)
-            arrival_times.extend(current_time + np.cumsum(inter_arrival_times))
+    # Adjusted generation rate during ON periods
+    adjusted_generation_rate = traffic_generation_rate / on_off_ratio
 
-            # OFF period
-            off_duration = np.random.exponential(average_off_time)
-            current_time += on_duration + off_duration
+    for i in range(STA_number):
+        arrival_times = np.zeros(event_number)  # Preallocate space for arrival times
+        current_time = 0  # Start at time 0
+        total_packets_generated = 0  # Track the total number of packets generated
 
-        STAs_arrivals_matrix.append(np.array(arrival_times[:event_number]))
+        while total_packets_generated < event_number:
+            # ON period: Generate packets based on adjusted_generation_rate
+            on_period_duration = np.random.exponential(average_on_time)
+            packets_in_burst = int(on_period_duration * adjusted_generation_rate)
+
+            for _ in range(packets_in_burst):
+                if total_packets_generated >= event_number:
+                    break
+                inter_arrival_time = np.random.exponential(1 / adjusted_generation_rate)
+                current_time += inter_arrival_time
+                arrival_times[total_packets_generated] = current_time
+                total_packets_generated += 1
+
+            # OFF period: No packets generated
+            off_period_duration = np.random.exponential(average_off_time)
+            current_time += off_period_duration
+
+        ##### Verifying the code:
+
+        # Check if the arrival times are in increasing order
+        assert np.all(np.diff(arrival_times) > 0), f"Non-monotonic times found in STA {i}"
+
+        # Check the actual rate of packets generated
+        total_time = arrival_times[-1] - arrival_times[0]
+        actual_rate = len(arrival_times) / total_time
+        print(f"STA {i}: Actual rate = {actual_rate:.2f} packets/sec and expected rate = {traffic_generation_rate:.2f} packets/sec")
+
+        # Add the generated arrival times to the result matrix
+        STAs_arrivals_matrix.append(arrival_times)
 
     return STAs_arrivals_matrix
 
@@ -168,20 +193,24 @@ start_time = time.time()
 ###### Input parameters
 validation_flag = 'no'
 EDCAaccessCategory = 'VI'
-traffic_types = ['Poisson', 'Bursty', 'VR']
-traffic_loads = {
-    'Poisson': ['low', 'medium', 'high'],
-    'Bursty': ['low', 'medium', 'high'],
-    'VR': ['30-60', '30-90', '30-120']
-}
+# traffic_types = ['Poisson', 'Bursty', 'VR']
+# traffic_loads = {
+#     'Poisson': ['low', 'medium', 'high'],
+#     'Bursty': ['low', 'medium', 'high'],
+#     'VR': ['30-60', '30-90', '30-120']
+# }
 
+traffic_types = ['Bursty']
+traffic_loads = {
+    'Bursty': ['low', 'medium', 'high'],
+}
 
 # Scenario-related
 AP_number = 4
-STA_number = 16
-grid_value = 60
+STA_number = 8
+grid_value = 40
 scenario_type = 'grid'
-sim = '30metros-16STAs'
+sim = '20metros-8STAs'
 walls = np.array([[0, grid_value, grid_value/2, grid_value/2], 
                   [grid_value/2, grid_value/2, 0, grid_value]])
 
@@ -232,7 +261,7 @@ with ProcessPoolExecutor(max_workers=max_workers) as executor:
             for i, future in enumerate(tqdm(futures, desc=f"{traffic_type} {traffic_load}", unit=" iteration")):
                 try:
                     STAs_arrivals_matrix = future.result()
-                    save_to_h5(output_dir, sim, traffic_type, traffic_load, i, STAs_arrivals_matrix)
+                    # save_to_h5(output_dir, sim, traffic_type, traffic_load, i, STAs_arrivals_matrix)
                 except Exception as e:
                     print(f"Error in iteration {i} for {traffic_type} {traffic_load}: {e}")
 
