@@ -199,7 +199,7 @@ MaxTxPower, Nsc = TXpowerCalc(BW, Nss)
 output_dir = os.path.join(os.getcwd(), 'Results/Simulation')
 
 # Run simulations with progress bar
-max_workers = 8  # Adjust the number of workers as needed
+max_workers = 1  # Adjust the number of workers as needed
 with ProcessPoolExecutor(max_workers=max_workers) as executor:
     for traffic_type in traffic_types:
         for traffic_load in traffic_loads[traffic_type]:
