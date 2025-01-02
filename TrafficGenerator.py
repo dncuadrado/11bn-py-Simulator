@@ -192,16 +192,11 @@ start_time = time.time()
 ###### Input parameters
 validation_flag = 'no'
 EDCAaccessCategory = 'VI'
-# traffic_types = ['Poisson', 'Bursty', 'VR']
-# traffic_loads = {
-#     'Poisson': ['low', 'medium', 'high'],
-#     'Bursty': ['low', 'medium', 'high'],
-#     'VR': ['30-60', '30-90', '30-120']
-# }
-
-traffic_types = ['Bursty']
+traffic_types = ['Poisson', 'Bursty', 'VR']
 traffic_loads = {
+    'Poisson': ['low', 'medium', 'high'],
     'Bursty': ['low', 'medium', 'high'],
+    'VR': ['30-60', '30-90', '30-120']
 }
 
 # Scenario-related
