@@ -762,7 +762,7 @@ def CG_creationTPC(AP_number, STA_number, CSRoverheads, Pn_dBm, Nsc, Nss,
             P = np.full(len(STAs), MaxTxPower)  # Equivalent to MaxTxPower * ones(length(STAs), 1)
         else:  # Compute the subset of power that maximizes the proportional fair transmission
             # TPC (Power allocation)
-            method = 'PSO'  # Optimization method: None, 'PSO', 'IPOPT', 'DE'
+            method = None  # Optimization method: None, 'PSO', 'IPOPT', 'DE'
             # Solving the Opt problem with the selected method
             P = power_allocation(len(STAs), noise_power, H, MaxTxPower, Nsc, Nss, method)
 
