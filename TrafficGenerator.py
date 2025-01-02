@@ -108,14 +108,13 @@ def generate_burst_traffic(STA_number, event_number, traffic_generation_rate):
             current_time += off_period_duration
 
         ##### Verifying the code:
+        # # Check if the arrival times are in increasing order
+        # assert np.all(np.diff(arrival_times) > 0), f"Non-monotonic times found in STA {i}"
 
-        # Check if the arrival times are in increasing order
-        assert np.all(np.diff(arrival_times) > 0), f"Non-monotonic times found in STA {i}"
-
-        # Check the actual rate of packets generated
-        total_time = arrival_times[-1] - arrival_times[0]
-        actual_rate = len(arrival_times) / total_time
-        print(f"STA {i}: Actual rate = {actual_rate:.2f} packets/sec and expected rate = {traffic_generation_rate:.2f} packets/sec")
+        # # Check the actual rate of packets generated
+        # total_time = arrival_times[-1] - arrival_times[0]
+        # actual_rate = len(arrival_times) / total_time
+        # print(f"STA {i}: Actual rate = {actual_rate:.2f} packets/sec and expected rate = {traffic_generation_rate:.2f} packets/sec")
 
         # Add the generated arrival times to the result matrix
         STAs_arrivals_matrix.append(arrival_times)
@@ -207,10 +206,10 @@ traffic_loads = {
 
 # Scenario-related
 AP_number = 4
-STA_number = 8
-grid_value = 40
+STA_number = 16
+grid_value = 60
 scenario_type = 'grid'
-sim = '20metros-8STAs'
+sim = '30metros-16STAs'
 walls = np.array([[0, grid_value, grid_value/2, grid_value/2], 
                   [grid_value/2, grid_value/2, 0, grid_value]])
 
@@ -261,7 +260,7 @@ with ProcessPoolExecutor(max_workers=max_workers) as executor:
             for i, future in enumerate(tqdm(futures, desc=f"{traffic_type} {traffic_load}", unit=" iteration")):
                 try:
                     STAs_arrivals_matrix = future.result()
-                    # save_to_h5(output_dir, sim, traffic_type, traffic_load, i, STAs_arrivals_matrix)
+                    save_to_h5(output_dir, sim, traffic_type, traffic_load, i, STAs_arrivals_matrix)
                 except Exception as e:
                     print(f"Error in iteration {i} for {traffic_type} {traffic_load}: {e}")
 
