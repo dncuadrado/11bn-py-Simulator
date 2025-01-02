@@ -120,16 +120,16 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration, STA_matrix_sa
     simTAT.InitSettings()  # Initializing STAs
     simTAT.Start()
     
-    print(f'Iteration: {iteration}')
-    print(f'DCF 50th {np.percentile(simDCF.delayvector,50)*1000}')
-    print(f'DCF 99th {np.percentile(simDCF.delayvector,99)*1000}')
-    print(f'MNP 50th {np.percentile(simMNP.delayvector,50)*1000}')
-    print(f'MNP 99th {np.percentile(simMNP.delayvector,99)*1000}')
-    print(f'OP 50th {np.percentile(simOP.delayvector,50)*1000}')
-    print(f'OP 99th {np.percentile(simOP.delayvector,99)*1000}')
-    print(f'TAT 50th {np.percentile(simTAT.delayvector,50)*1000}')
-    print(f'TAT 99th {np.percentile(simTAT.delayvector,99)*1000}')
-    print('-----------------------------------------')
+    # print(f'Iteration: {iteration}')
+    # print(f'DCF 50th {np.percentile(simDCF.delayvector,50)*1000}')
+    # print(f'DCF 99th {np.percentile(simDCF.delayvector,99)*1000}')
+    # print(f'MNP 50th {np.percentile(simMNP.delayvector,50)*1000}')
+    # print(f'MNP 99th {np.percentile(simMNP.delayvector,99)*1000}')
+    # print(f'OP 50th {np.percentile(simOP.delayvector,50)*1000}')
+    # print(f'OP 99th {np.percentile(simOP.delayvector,99)*1000}')
+    # print(f'TAT 50th {np.percentile(simTAT.delayvector,50)*1000}')
+    # print(f'TAT 99th {np.percentile(simTAT.delayvector,99)*1000}')
+    # print('-----------------------------------------')
 
     return simDCF.delayvector
 
