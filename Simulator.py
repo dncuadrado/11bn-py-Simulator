@@ -13,7 +13,7 @@ from AuxiliarFunctions import *
 from MAPCsim import *
 
 
-def simulate_iteration(sim, traffic_type, traffic_load, iteration, STA_matrix_save, channelMatrix_save, RSSI_dB_vector_to_export_save):
+def simulate_iteration(sim, traffic_type, traffic_load, iteration):
     """
     Simulates one iteration and returns the STAs_arrivals_matrix.
 
@@ -37,8 +37,8 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration, STA_matrix_sa
 
 
     ### Deployment-dependent data
-    AP_matrix, _ = AP_STA_coordinates(AP_number, STA_number, scenario_type, grid_value)
-    STA_matrix = STA_matrix_save[:, :, iteration]
+    AP_matrix, STA_matrix = AP_STA_coordinates(AP_number, STA_number, scenario_type, grid_value)
+    # STA_matrix = STA_matrix_save[:, :, iteration]
 
     # Association
     association = AP_STA_Association(AP_number, STA_number, scenario_type)
@@ -47,10 +47,10 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration, STA_matrix_sa
     # PlotDeployment(AP_matrix, STA_matrix, association, grid_value, walls)
 
     # Channel matrix  
-    channelMatrix = channelMatrix_save[:, :, iteration]
+    # channelMatrix = channelMatrix_save[:, :, iteration]
 
     # Compute the channelMatrix and RSSI_dB_vector_to_export if they aren't provided
-    # channelMatrix, _ = GetChannelMatrix(MaxTxPower, Cca, AP_matrix, STA_matrix, scenario_type, walls, checkSegmentIntersection, Getloss)
+    channelMatrix, _ = GetChannelMatrix(MaxTxPower, Cca, AP_matrix, STA_matrix, scenario_type, walls, checkSegmentIntersection, Getloss)
     
     # Compute the overheads
     preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads = OverheadsCalc(EDCAaccessCategory)
@@ -117,16 +117,16 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration, STA_matrix_sa
     simTAT.InitSettings()  # Initializing STAs
     simTAT.Start()
     
-    # print(f'Iteration: {iteration}')
-    # print(f'DCF 50th {np.percentile(simDCF.delayvector,50)*1000}')
-    # print(f'DCF 99th {np.percentile(simDCF.delayvector,99)*1000}')
-    # print(f'MNP 50th {np.percentile(simMNP.delayvector,50)*1000}')
-    # print(f'MNP 99th {np.percentile(simMNP.delayvector,99)*1000}')
-    # print(f'OP 50th {np.percentile(simOP.delayvector,50)*1000}')
-    # print(f'OP 99th {np.percentile(simOP.delayvector,99)*1000}')
-    # print(f'TAT 50th {np.percentile(simTAT.delayvector,50)*1000}')
-    # print(f'TAT 99th {np.percentile(simTAT.delayvector,99)*1000}')
-    # print('-----------------------------------------')
+    print(f'Iteration: {iteration}')
+    print(f'DCF 50th {np.percentile(simDCF.delayvector,50)*1000}')
+    print(f'DCF 99th {np.percentile(simDCF.delayvector,99)*1000}')
+    print(f'MNP 50th {np.percentile(simMNP.delayvector,50)*1000}')
+    print(f'MNP 99th {np.percentile(simMNP.delayvector,99)*1000}')
+    print(f'OP 50th {np.percentile(simOP.delayvector,50)*1000}')
+    print(f'OP 99th {np.percentile(simOP.delayvector,99)*1000}')
+    print(f'TAT 50th {np.percentile(simTAT.delayvector,50)*1000}')
+    print(f'TAT 99th {np.percentile(simTAT.delayvector,99)*1000}')
+    print('-----------------------------------------')
 
     return simDCF.delayvector
 
@@ -188,12 +188,12 @@ iterations = 100
 ### Channel-related parameters
 MaxTxPower, Nsc = TXpowerCalc(BW, Nss)
 
-### Load deployment data
-h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
-with h5py.File(h5file_deployments_path, 'r') as f:
-    STA_matrix_save = f['STA_matrix_save'][:]
-    channelMatrix_save = f['channelMatrix_save'][:]
-    RSSI_dB_vector_to_export_save = f['RSSI_dB_vector_to_export_save'][:]
+# ### Load deployment data
+# h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
+# with h5py.File(h5file_deployments_path, 'r') as f:
+#     STA_matrix_save = f['STA_matrix_save'][:]
+#     channelMatrix_save = f['channelMatrix_save'][:]
+#     # RSSI_dB_vector_to_export_save = f['RSSI_dB_vector_to_export_save'][:]
 
 ### Output directory    
 output_dir = os.path.join(os.getcwd(), 'Results/Simulation')
@@ -205,15 +205,16 @@ with ProcessPoolExecutor(max_workers=max_workers) as executor:
         for traffic_load in traffic_loads[traffic_type]:
             futures = [
                 executor.submit(
-                    simulate_iteration, sim, traffic_type, traffic_load, i, 
-                    STA_matrix_save, channelMatrix_save, RSSI_dB_vector_to_export_save
+                    # simulate_iteration, sim, traffic_type, traffic_load, i, 
+                    # STA_matrix_save, channelMatrix_save
+                    simulate_iteration, sim, traffic_type, traffic_load, i
                 )
                 for i in range(iterations)
             ]
             for i, future in enumerate(tqdm(futures, desc=f"{traffic_type} {traffic_load}", unit=" iteration")):
                 try:
                     DCFdelay = future.result()
-                    save_to_h5(output_dir, sim, traffic_type, traffic_load, i, DCFdelay)
+                    # save_to_h5(output_dir, sim, traffic_type, traffic_load, i, DCFdelay)
                 except Exception as e:
                     print(f"Error in iteration {i} for {traffic_type} {traffic_load}: {e}")
 
