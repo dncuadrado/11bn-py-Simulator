@@ -173,18 +173,18 @@ validationFlag = 'no'
 #     'VR': ['30-60', '30-90', '30-120']
 # }
 
-traffic_types = ['Poisson']
+traffic_types = ['VR']
 traffic_loads = {
-    'Poisson': ['high']
+    'VR': ['30-120']
 }
 
 
 # Scenario-related
 AP_number = 4
-STA_number = 8
-grid_value = 40
+STA_number = 16
+grid_value = 60
 scenario_type = 'grid'
-sim = '20metros-8STAs'
+sim = '30metros-16STAs'
 walls = np.array([[0, grid_value, grid_value/2, grid_value/2], 
                   [grid_value/2, grid_value/2, 0, grid_value]])
 

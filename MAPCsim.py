@@ -173,9 +173,6 @@ class MAPCsim:
         else:
             # Scheduling logic for other systems
             CGs = self.CGs_STAs.copy()
-            # CGs = [list(cg) for cg in self.CGs_STAs]
-
-            # per_STA_ScorePackets = [0]*self.n_STAs
             per_STA_ScorePackets = np.zeros(self.n_STAs, dtype=int)
 
             for j in range(self.n_STAs):
@@ -200,14 +197,13 @@ class MAPCsim:
                 self._lastPosPosition[j] = tx_vector_pos[-1]
                 self._lastPosTimestamp[j] = self.STA_queue_timeline[j][self._lastPosPosition[j]]
             
-
-            uni = []
-            ScorePackets = []
-            ScoreTimeOldest = []
-            ScoreTAT = []
+            # Initialize variables
+            uni = []                            # Unique STAs
+            ScorePackets = []                   # Score based on the number of packets
+            ScoreTimeOldest = []                # Score based on the oldest packet (timestamp)
+            ScoreTAT = []                       # Score based on TAT----->   delta_nt + self.beta_ * (Delta_nt - self.alpha_ * delta_nt)
 
             for i in np.where(~np.all(np.isnan(CGs), axis=1))[0]:
-                # u = np.unique(CGs1[i])
                 u = CGs[i][~np.isnan(CGs[i])].astype(int)
                 uni.append(u)
 
@@ -252,7 +248,11 @@ class MAPCsim:
                 elif self.scheduler == 'Random':
                     idx_score = np.random.randint(len(uni))
                 elif self.scheduler == 'TAT':
+                    maxScore = max(ScoreTAT)
                     idx_score = np.argmax(ScoreTAT)
+                    equalScoreIdx = [i for i, score in enumerate(ScoreTAT) if score == maxScore]
+                    if len(equalScoreIdx) != 1:
+                        idx_score = equalScoreIdx[np.argmax([ScorePackets[i] for i in equalScoreIdx])]
 
             STA_rx = uni[idx_score]
 
