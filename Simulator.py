@@ -48,12 +48,9 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration, STA_matrix_sa
 
     # Channel matrix  
     channelMatrix = channelMatrix_save[:, :, iteration]
-    
-    # RSSI_dB_vector_to_export
-    RSSI_dB_vector_to_export = RSSI_dB_vector_to_export_save[:, :, iteration]
 
     # Compute the channelMatrix and RSSI_dB_vector_to_export if they aren't provided
-    # channelMatrix, RSSI_dB_vector_to_export = GetChannelMatrix(MaxTxPower, Cca, AP_matrix, STA_matrix, scenario_type, walls, checkSegmentIntersection, Getloss)
+    # channelMatrix, _ = GetChannelMatrix(MaxTxPower, Cca, AP_matrix, STA_matrix, scenario_type, walls, checkSegmentIntersection, Getloss)
     
     # Compute the overheads
     preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads = OverheadsCalc(EDCAaccessCategory)
@@ -73,8 +70,8 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration, STA_matrix_sa
     seed = 1
 
     np.random.seed(seed)
-    simDCF = MAPCsim(AP_number, STA_number, association, MaxTxPower, channelMatrix, RSSI_dB_vector_to_export, traffic_type, timestamp_to_stop, 
-            simulation_system, validationFlag, TXOP_duration, Pn_dBm, Cca, BW, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
+    simDCF = MAPCsim(AP_number, STA_number, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop, 
+            simulation_system, validationFlag, TXOP_duration, Pn_dBm, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
     simDCF.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simDCF.simulation_system = 'DCF'
     simDCF.accessCategory = EDCAaccessCategory
@@ -83,8 +80,8 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration, STA_matrix_sa
 
 
     np.random.seed(seed)
-    simMNP = MAPCsim(AP_number, STA_number, association, MaxTxPower, channelMatrix, RSSI_dB_vector_to_export, traffic_type, timestamp_to_stop, 
-            simulation_system, validationFlag, TXOP_duration, Pn_dBm, Cca, BW, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
+    simMNP = MAPCsim(AP_number, STA_number, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop, 
+            simulation_system, validationFlag, TXOP_duration, Pn_dBm, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
     simMNP.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simMNP.simulation_system = 'CSR'
     simMNP.scheduler = 'MNP'
@@ -95,8 +92,8 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration, STA_matrix_sa
     simMNP.Start()
 
     np.random.seed(seed)
-    simOP = MAPCsim(AP_number, STA_number, association, MaxTxPower, channelMatrix, RSSI_dB_vector_to_export, traffic_type, timestamp_to_stop, 
-            simulation_system, validationFlag, TXOP_duration, Pn_dBm, Cca, BW, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
+    simOP = MAPCsim(AP_number, STA_number, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop, 
+            simulation_system, validationFlag, TXOP_duration, Pn_dBm, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
     simOP.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simOP.simulation_system = 'CSR'
     simOP.scheduler = 'OP'
@@ -107,8 +104,8 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration, STA_matrix_sa
     simOP.Start()
 
     np.random.seed(seed)
-    simTAT = MAPCsim(AP_number, STA_number, association, MaxTxPower, channelMatrix, RSSI_dB_vector_to_export, traffic_type, timestamp_to_stop, 
-            simulation_system, validationFlag, TXOP_duration, Pn_dBm, Cca, BW, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
+    simTAT = MAPCsim(AP_number, STA_number, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop, 
+            simulation_system, validationFlag, TXOP_duration, Pn_dBm, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
     simTAT.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simTAT.simulation_system = 'CSR'
     simTAT.scheduler = 'TAT'
@@ -171,10 +168,10 @@ traffic_loads = {
 
 # Scenario-related
 AP_number = 4
-STA_number = 16
-grid_value = 60
+STA_number = 8
+grid_value = 40
 scenario_type = 'grid'
-sim = '30metros-16STAs'
+sim = '20metros-8STAs'
 walls = np.array([[0, grid_value, grid_value/2, grid_value/2], 
                   [grid_value/2, grid_value/2, 0, grid_value]])
 

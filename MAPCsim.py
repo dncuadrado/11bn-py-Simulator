@@ -6,15 +6,13 @@ class MAPCsim:
     Traffic class to handle the traffic generated for the STAs
     """
 
-    def __init__(self, n_APs, n_STAs, association, MaxTxPower, channelMatrix, RSSI_dB_vector_to_export, traffic_type, timestamp_to_stop,
-                 simulation_system, validationFlag, TXOP_duration, Pn_dBm, Cca, BW, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR,
+    def __init__(self, n_APs, n_STAs, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop,
+                 simulation_system, validationFlag, TXOP_duration, Pn_dBm, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR,
                  DCFoverheads, CSRoverheads):
         # System-related
         self._TXOP_duration = TXOP_duration                              # Duration of a TXOP
         self._noise_power = 10 ** (Pn_dBm / 10)                          # Noise power in mW
         self._MaxTxPower = 10 ** (MaxTxPower / 10)                       # Maximum transmission power in mW
-        # self._Cca = Cca                                                # Clear channel assessment in dBm (default -82 dBm)
-        # self._BW = BW                                                  # Bandwidth (MHz)
         self._Nss = Nss                                                  # Number of spatial streams
         self._Nsc = Nsc                                                  # Number of subcarriers
 
@@ -23,7 +21,6 @@ class MAPCsim:
         self.n_STAs = n_STAs                                              # Number of STAs
         self._association = association                                   # Association matrix
         self._channelMatrix = channelMatrix                               # Channel matrix
-        # self._RSSI_dB_vector_to_export = RSSI_dB_vector_to_export       # RSSI vector to export
         
 
         # Traffic-related
