@@ -336,13 +336,6 @@ class MAPCsim:
             if last_tx_packet is None:
                 continue  # Skip if no transmitted packet is found
 
-            # # Create extended valid_indices mask and ensure the last transmitted packet is included as True
-            # extended_valid_indices = np.pad(~np.isnan(self.delivery_timestamp_record[j][:last_tx_packet]), 
-            #                                 (0, len(self.delivery_timestamp_record[j]) - last_tx_packet), 
-            #                                 mode='constant', constant_values=False)
-            # extended_valid_indices[last_tx_packet] = True
-
-            # Create the extended valid_indices mask and ensure the last transmitted packet is True
             valid_indices = np.concatenate([~np.isnan(self.delivery_timestamp_record[j][:last_tx_packet]), 
                                                     [True] + [False] * (len(self.delivery_timestamp_record[j]) - last_tx_packet - 1)])
 
