@@ -4,7 +4,7 @@ import h5py
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
-from AuxiliarFunctions import *
+from Utils import *
 
 def TrafficGenerator(STA_number, validation_flag, traffic_type, traffic_load, L, 
                      per_STA_DCF_throughput_bianchi):

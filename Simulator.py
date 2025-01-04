@@ -9,7 +9,7 @@ import h5py
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
-from AuxiliarFunctions import *
+from Utils import *
 from MAPCsim import *
 from TrafficGenerator import TrafficGenerator, poisson_fixed_events, generate_burst_traffic, generate_vr_traffic
 

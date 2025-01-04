@@ -1,5 +1,5 @@
 import numpy as np
-from AuxiliarFunctions import MCS_cal_PER_001, tx_packets, elapsed_time_tx
+from Utils import MCS_cal_PER_001, tx_packets, elapsed_time_tx
 
 class MAPCsim:
     """
