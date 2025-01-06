@@ -17,22 +17,22 @@ from itertools import product
 
 ####################################################################################################################
 # Function to calculate the TX power and the number of subcarriers 
-def TXpowerCalc(BW, Nss):
+def TXpowerCalc(BW, NSS):
     """
-    Compute the number of subcarriers, Nsc, as well as the total power used depending on the bandwidth and the number of spatial streams
+    Compute the number of subcarriers, NSC, as well as the total power used depending on the bandwidth and the number of spatial streams
     """
 
     bw_to_nsc = {20: 234, 40: 468, 80: 980, 160: 1960}
-    Nsc = bw_to_nsc.get(BW, None)
-    if Nsc is None:
+    NSC = bw_to_nsc.get(BW, None)
+    if NSC is None:
         raise ValueError(f"Unsupported bandwidth: {BW}")
     
     PSdensity = 5               # power spectral density in dBm/MHz (it cannot exceed 10 dBm/MHz by regulation, and the EIRP is even limited to 23 dBm in Europe)
     EIRP = PSdensity + 10 * math.log10(BW)                      # EIRP is constant by regulation in the 6Gz band
     EIRP = min(EIRP, 23)                                        # By ETSI constraint EIRP cannot exceed 23 dBm in Europe
-    tx_power_ss = EIRP - 10 * math.log10(Nss)                   # transmission power per spatial stream
+    tx_power_ss = EIRP - 10 * math.log10(NSS)                   # transmission power per spatial stream
     
-    return tx_power_ss, Nsc
+    return tx_power_ss, NSC
 ####################################################################################################################
 
 # Function to calculate the overheads
@@ -42,7 +42,7 @@ def OverheadsCalc(EDCAaccessCategory):
     Returns: preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads
     """
     # Computes the needed overheads
-    time_preamble_data = 100e-6
+    TIME_PREAMBLE_DATA = 100e-6
     
     # Time durations for different overheads
     TRTS = 56E-6
@@ -50,7 +50,7 @@ def OverheadsCalc(EDCAaccessCategory):
     TSIFS = 16e-6  # Shortest Interframe spacing (SIFS time)
     
     # DIFS = 34e-6  # DCF Interframe spacing (DIFS time)
-    Te = 9e-6  # Duration of a single backoff slot
+    TE = 9e-6  # Duration of a single backoff slot
     TBACK = 100E-6
 
     TMAPC_ICF = 74.4E-6
@@ -58,80 +58,80 @@ def OverheadsCalc(EDCAaccessCategory):
     TMAPC_TF = 74.4E-6
 
     AIFSN = 2 if EDCAaccessCategory in ['VI', 'VO'] else 3
-    AIFS = AIFSN * Te + TSIFS
+    AIFS = AIFSN * TE + TSIFS
 
     # DCF Overheads
-    preTX_overheadsDCF = TRTS + TSIFS + TCTS + TSIFS + time_preamble_data
-    DCFoverheads = TRTS + TSIFS + TCTS + TSIFS + time_preamble_data + TSIFS + TBACK + AIFS + Te
+    preTX_overheadsDCF = TRTS + TSIFS + TCTS + TSIFS + TIME_PREAMBLE_DATA
+    DCFoverheads = TRTS + TSIFS + TCTS + TSIFS + TIME_PREAMBLE_DATA + TSIFS + TBACK + AIFS + TE
 
     # CSR Overheads
-    preTX_overheadsCSR = TMAPC_ICF + TSIFS + TMAPC_ICR + TSIFS + TMAPC_TF + TSIFS + time_preamble_data
-    CSRoverheads = TMAPC_ICF + TSIFS + TMAPC_ICR + TSIFS + TMAPC_TF + TSIFS + time_preamble_data + TSIFS + TBACK + AIFS + Te
+    preTX_overheadsCSR = TMAPC_ICF + TSIFS + TMAPC_ICR + TSIFS + TMAPC_TF + TSIFS + TIME_PREAMBLE_DATA
+    CSRoverheads = TMAPC_ICF + TSIFS + TMAPC_ICR + TSIFS + TMAPC_TF + TSIFS + TIME_PREAMBLE_DATA + TSIFS + TBACK + AIFS + TE
 
     return preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads
 ####################################################################################################################
 
 # Function to calculate the AP-STA coordinates
-def AP_STA_coordinates(AP_number, STA_number, scenario_type, grid_value):
+def AP_STA_coordinates(AP_NUMBER, STA_NUMBER, SCENARIO_TYPE, GRID_VALUE):
     """
     Computes the matrices with the coordinates of the devices (AP_matrix and STA_matrix).
     Returns: AP_matrix, STA_matrix
     """
-    STAs_per_AP = STA_number // AP_number
+    STAs_per_AP = STA_NUMBER // AP_NUMBER
 
     # Max Distance between AP and STA (used only in 'grid')
-    AP_STA_max_distance = min(10, grid_value / 4)  # in meters
+    AP_STA_max_distance = min(10, GRID_VALUE / 4)  # in meters
 
     # Initialize matrices
-    AP_matrix = np.zeros((AP_number, 2))
-    STA_matrix = np.zeros((STA_number, 2))
+    AP_matrix = np.zeros((AP_NUMBER, 2))
+    STA_matrix = np.zeros((STA_NUMBER, 2))
 
-    if scenario_type == 'grid':
+    if SCENARIO_TYPE == 'grid':
         # APs are manually placed in a grid
-        AP_matrix = np.array([[grid_value / 4, grid_value / 4],
-                              [grid_value / 4, 3 * grid_value / 4],
-                              [3 * grid_value / 4, grid_value / 4],
-                              [3 * grid_value / 4, 3 * grid_value / 4]])
+        AP_matrix = np.array([[GRID_VALUE / 4, GRID_VALUE / 4],
+                              [GRID_VALUE / 4, 3 * GRID_VALUE / 4],
+                              [3 * GRID_VALUE / 4, GRID_VALUE / 4],
+                              [3 * GRID_VALUE / 4, 3 * GRID_VALUE / 4]])
 
         # STA placement around each AP
-        t = 2 * np.pi * np.random.rand(STA_number)
-        g = 1 + (AP_STA_max_distance - 1) * np.random.rand(STA_number)
-        AP_indices = np.repeat(np.arange(AP_number), STAs_per_AP)
+        t = 2 * np.pi * np.random.rand(STA_NUMBER)
+        g = 1 + (AP_STA_max_distance - 1) * np.random.rand(STA_NUMBER)
+        AP_indices = np.repeat(np.arange(AP_NUMBER), STAs_per_AP)
         STA_matrix[:, 0] = AP_matrix[AP_indices, 0] + g * np.cos(t)
         STA_matrix[:, 1] = AP_matrix[AP_indices, 1] + g * np.sin(t)
 
-    elif scenario_type == 'random':
+    elif SCENARIO_TYPE == 'random':
         # APs randomly placed all over the area
-        AP_matrix = grid_value * np.random.rand(AP_number, 2)
+        AP_matrix = GRID_VALUE * np.random.rand(AP_NUMBER, 2)
 
         # STAs randomly placed all over the area
-        STA_matrix = grid_value * np.random.rand(STA_number, 2)
+        STA_matrix = GRID_VALUE * np.random.rand(STA_NUMBER, 2)
 
     # Validations
-    if AP_matrix.shape[0] != AP_number:
-        raise ValueError('AP_number does not match with AP_matrix dimension')
-    if STA_matrix.shape[0] != STA_number:
-        raise ValueError('STA_number does not match with STA_matrix dimension')
+    if AP_matrix.shape[0] != AP_NUMBER:
+        raise ValueError('AP_NUMBER does not match with AP_matrix dimension')
+    if STA_matrix.shape[0] != STA_NUMBER:
+        raise ValueError('STA_NUMBER does not match with STA_matrix dimension')
 
     return AP_matrix, STA_matrix
 ####################################################################################################################
 
 # Function to calculate the AP-STA association
-def AP_STA_Association(AP_number, STA_number, scenario_type):
+def AP_STA_Association(AP_NUMBER, STA_NUMBER, SCENARIO_TYPE):
     """
     Association process. STAs are associated independently of the distance to their corresponding AP.
     Returns a list with the list of STAs by AP.
     """
-    if scenario_type == 'grid':
-        STAs_per_AP = STA_number // AP_number
+    if SCENARIO_TYPE == 'grid':
+        STAs_per_AP = STA_NUMBER // AP_NUMBER
         # Create a list of STAs and reshape it to match the AP-STA association
-        association = np.arange(STA_number).reshape(AP_number, STAs_per_AP).tolist()
+        association = np.arange(STA_NUMBER).reshape(AP_NUMBER, STAs_per_AP).tolist()
 
     return association
 ####################################################################################################################
 
 # Function to plot the devices' locations in the deployment
-def PlotDeployment(AP_matrix, STA_matrix, association, grid_value, walls):
+def PlotDeployment(AP_matrix, STA_matrix, association, GRID_VALUE, walls):
     """
     Plots the deployment with APs, STAs, and walls.
     """
@@ -192,16 +192,16 @@ def PlotDeployment(AP_matrix, STA_matrix, association, grid_value, walls):
     plt.grid(True)
     plt.xlabel('X-axis [meters]', fontsize=16)
     plt.ylabel('Y-axis [meters]', fontsize=16)
-    plt.xticks(np.arange(0, grid_value + 1, 5))
-    plt.yticks(np.arange(0, grid_value + 1, 5))
-    plt.xlim([0, grid_value])
-    plt.ylim([0, grid_value])
+    plt.xticks(np.arange(0, GRID_VALUE + 1, 5))
+    plt.yticks(np.arange(0, GRID_VALUE + 1, 5))
+    plt.xlim([0, GRID_VALUE])
+    plt.ylim([0, GRID_VALUE])
 
     plt.show()
 ####################################################################################################################
 
 # Function to calculate the pathloss
-def Getloss(a_position, b_position, m_NumberOfWalls, std_dev):
+def Getloss(a_position, b_position, m_NumberOfWalls, STD_DEV):
     """
     Calculates the path loss between two devices using the Enterprise model 
     defined for 802.11ax.
@@ -210,26 +210,26 @@ def Getloss(a_position, b_position, m_NumberOfWalls, std_dev):
     - a_position (array-like): Coordinates (x, y) of device A.
     - b_position (array-like): Coordinates (x, y) of device B.
     - m_NumberOfWalls (int): Number of walls between the devices.
-    - std_dev (float): Standard deviation for shadowing in dB.
+    - STD_DEV (float): Standard deviation for shadowing in dB.
 
     Returns:
     - loss (float): Path loss in dB.
     """
     loss = 0.0            
     
-    m_dBP = 10.0           # Breaking point distance from which an additional loss factor is added 
-    m_frequency = 6        # Frequency in GHz; 6-GHz band
+    DBP = 10.0           # Breaking point distance from which an additional loss factor is added 
+    FREQUENCY = 6        # Frequency in GHz; 6-GHz band
 
     distance = np.linalg.norm(np.array(a_position) - np.array(b_position))
 
     # Additional loss (when distance is greater than the breaking point)
     addLoss = 0.0
-    if distance >= m_dBP:
-        addLoss = 35 * np.log10(distance / m_dBP)
+    if distance >= DBP:
+        addLoss = 35 * np.log10(distance / DBP)
 
-    shadowing = std_dev * np.random.randn()  # Shadowing in dB
+    shadowing = STD_DEV * np.random.randn()  # Shadowing in dB
 
-    loss = 40.05 + 20 * np.log10(m_frequency / 2.4) + 20 * np.log10(min(distance, m_dBP)) + addLoss + 7 * m_NumberOfWalls + shadowing
+    loss = 40.05 + 20 * np.log10(FREQUENCY / 2.4) + 20 * np.log10(min(distance, DBP)) + addLoss + 7 * m_NumberOfWalls + shadowing
 
     return loss
 ####################################################################################################################
@@ -289,7 +289,7 @@ def checkSegmentIntersection(x1a1, x2a1, y1a1, y2a1, a2):
 ####################################################################################################################
 
 # Function to calculate channelMatrix and RSSI_dB_vector_to_export
-def GetChannelMatrix(MaxTxPower, Cca, AP_matrix, STA_matrix, scenario_type, walls, checkSegmentIntersection, Getloss):
+def GetChannelMatrix(MaxTxPower, CCA, AP_matrix, STA_matrix, SCENARIO_TYPE, walls, checkSegmentIntersection, Getloss):
     """
     Calculates the channel matrix and RSSI [dB] values for each AP-STA and AP-AP pairs. Validate RSSI between APs is above the CCA
 
@@ -315,8 +315,8 @@ def GetChannelMatrix(MaxTxPower, Cca, AP_matrix, STA_matrix, scenario_type, wall
                 if isIntersecting:
                     NumberOfWallsAP_STA_Matrix[kk, k] += 1
 
-            std_dev = 5  # Standard deviation for shadowing
-            channelCoefficient_dB = Getloss(AP_matrix[k, :], STA_matrix[kk, :], NumberOfWallsAP_STA_Matrix[kk, k], std_dev)
+            STD_DEV = 5  # Standard deviation for shadowing
+            channelCoefficient_dB = Getloss(AP_matrix[k, :], STA_matrix[kk, :], NumberOfWallsAP_STA_Matrix[kk, k], STD_DEV)
             channelMatrix[kk, k] = 1 / 10 ** (channelCoefficient_dB / 10)
             RSSI_dB_vector_to_export[kk, k] = MaxTxPower - channelCoefficient_dB
 
@@ -329,18 +329,18 @@ def GetChannelMatrix(MaxTxPower, Cca, AP_matrix, STA_matrix, scenario_type, wall
                     NumberOfWallsAP_AP_Matrix[k, i] += 1
 
             # Calculate RSSI for AP to AP connections
-            if scenario_type == 'random':
-                std_dev = 0  # No shadowing between APs
-                channelCoefficient_dB = Getloss(AP_matrix[k, :], AP_matrix[i, :], NumberOfWallsAP_AP_Matrix[k, i], std_dev)
+            if SCENARIO_TYPE == 'random':
+                STD_DEV = 0  # No shadowing between APs
+                channelCoefficient_dB = Getloss(AP_matrix[k, :], AP_matrix[i, :], NumberOfWallsAP_AP_Matrix[k, i], STD_DEV)
                 AP_to_AP_RSSI_matrix[k, i] = MaxTxPower - channelCoefficient_dB
-            elif scenario_type == 'grid':
-                std_dev = 0  # No shadowing between APs
-                channelCoefficient_dB = Getloss(AP_matrix[k, :], AP_matrix[i, :], 1, std_dev)  # Only 1 wall between APs
+            elif SCENARIO_TYPE == 'grid':
+                STD_DEV = 0  # No shadowing between APs
+                channelCoefficient_dB = Getloss(AP_matrix[k, :], AP_matrix[i, :], 1, STD_DEV)  # Only 1 wall between APs
                 AP_to_AP_RSSI_matrix[k, i] = MaxTxPower - channelCoefficient_dB
 
     # Validation check for RSSI between APs
-    if np.min(AP_to_AP_RSSI_matrix) < Cca:
-        raise ValueError('Scenario constraint: RSSI between APs is under the Cca threshold. All APs should be in the coverage area of the others')
+    if np.min(AP_to_AP_RSSI_matrix) < CCA:
+        raise ValueError('Scenario constraint: RSSI between APs is under the CCA threshold. All APs should be in the coverage area of the others')
 
     return channelMatrix, RSSI_dB_vector_to_export
 ####################################################################################################################
@@ -427,14 +427,14 @@ def MCS_cal_PER_001(SINR_db):
 ####################################################################################################################
 
 # Function to calculate the optimal power allocation
-def power_allocation(N, noise_power, H, P_max, Nsc, Nss, method):
+def power_allocation(N, noise_power, H, P_max, NSC, NSS, method):
     """
     Optimizes power allocation using the specified method to maximize proportional fairness.
     Returns: P_opt
     """
 
     # Function to compute the product of rates for the given power allocation
-    def compute_rates(P, H, noise_power, N, Nsc, Nss):
+    def compute_rates(P, H, noise_power, N, NSC, NSS):
         """
         Computes the product of rates for the given power allocation.
         
@@ -443,8 +443,8 @@ def power_allocation(N, noise_power, H, P_max, Nsc, Nss, method):
         H: Channel gain matrix (NxN)
         noise_power: Noise power (scalar)
         N: Number of links
-        Nsc: Number of subcarriers
-        Nss: Number of spatial streams
+        NSC: Number of subcarriers
+        NSS: Number of spatial streams
         
         Returns:
         product_rate: Product of rates for all links
@@ -465,7 +465,7 @@ def power_allocation(N, noise_power, H, P_max, Nsc, Nss, method):
             if np.isnan(MCS):
                 rates[i] = 0
             else:
-                rates[i] = (Nsc * N_bps * Rc * Nss) / (T_DFT + T_GI)
+                rates[i] = (NSC * N_bps * Rc * NSS) / (T_DFT + T_GI)
                 # rates[i] = np.log2(1 + sinr[i])
         
         # Return the product of all rates
@@ -480,7 +480,7 @@ def power_allocation(N, noise_power, H, P_max, Nsc, Nss, method):
         # return np.min(rates)
     
     # Function to calculate the optimal power allocation using the Particle Swarm Optimization (PSO) algorithm
-    def power_allocation_particleswarm(N, noise_power, H, P_max, Nsc, Nss):
+    def power_allocation_particleswarm(N, noise_power, H, P_max, NSC, NSS):
         """
         Optimizes power allocation using Particle Swarm Optimization (PSO)
         to maximize proportional fairness.
@@ -490,8 +490,8 @@ def power_allocation(N, noise_power, H, P_max, Nsc, Nss, method):
         noise_power: Noise power (scalar)
         H: Channel gain matrix (NxN)
         P_max: Maximum power constraint (scalar)
-        Nsc: Number of subcarriers
-        Nss: Number of spatial streams
+        NSC: Number of subcarriers
+        NSS: Number of spatial streams
         
         Returns:
         P_opt: Optimized power allocation vector (N,)
@@ -503,11 +503,11 @@ def power_allocation(N, noise_power, H, P_max, Nsc, Nss, method):
         ub = P_max * np.ones(N)  # Upper bound for power allocation
 
         # Use PSO with optimized swarm size and iterations
-        swarm_size = 10  # Reduced swarm size (can be tuned)
-        max_iter = 20   # Reduced number of iterations (can be tuned)
+        SWARM_SIZE = 10  # Reduced swarm size (can be tuned)
+        MAX_ITER = 20   # Reduced number of iterations (can be tuned)
 
         def objective(P):
-            return -compute_rates(P, H, noise_power, N, Nsc, Nss)
+            return -compute_rates(P, H, noise_power, N, NSC, NSS)
         
         # Silence stdout and stderr
         with open(os.devnull, 'w') as fnull:
@@ -516,29 +516,29 @@ def power_allocation(N, noise_power, H, P_max, Nsc, Nss, method):
             try:
                 sys.stdout = fnull
                 sys.stderr = fnull
-                # P_opt, _ = pso(objective, lb, ub, swarmsize=swarm_size, maxiter=max_iter, debug=False, 
+                # P_opt, _ = pso(objective, lb, ub, swarmsize=SWARM_SIZE, maxiter=MAX_ITER, debug=False, 
                 #        minfunc=1e-8, omega=0.9, phip=0.1, phig=0.1)
                 
                 P_opt, _ = pso(objective, lb, ub, ieqcons=[], f_ieqcons=None, args=(), kwargs={}, 
-                    swarmsize=swarm_size, omega=0.9, phip=0.1, phig=0.1, maxiter=max_iter, 
+                    swarmsize=SWARM_SIZE, omega=0.9, phip=0.1, phig=0.1, maxiter=MAX_ITER, 
                     minstep=1e-8, minfunc=1e-8, debug=False)
             finally:
                 sys.stdout = original_stdout
                 sys.stderr = original_stderr
 
-        # P_opt, _ = pso(objective, lb, ub, swarmsize=swarm_size, maxiter=max_iter, debug=False, 
+        # P_opt, _ = pso(objective, lb, ub, swarmsize=SWARM_SIZE, maxiter=MAX_ITER, debug=False, 
         #                minfunc=1e-6, omega=0.5, phip=0.5, phig=0.5)
         
 
         return P_opt
     ####################################################################################################################
 
-    def power_allocation_ipyopt(N, noise_power, H, P_max, Nsc, Nss):
+    def power_allocation_ipyopt(N, noise_power, H, P_max, NSC, NSS):
         """
         Optimizes power allocation using IPOPT to maximize proportional fairness.
 
         IMPORTANT! It does not work at all when datarates are computed using: 
-        rates[i] = (Nsc * N_bps * Rc * Nss) / (T_DFT + T_GI)
+        rates[i] = (NSC * N_bps * Rc * NSS) / (T_DFT + T_GI)
 
         instead use: 
         rates[i] = np.log2(1 + sinr[i])
@@ -548,8 +548,8 @@ def power_allocation(N, noise_power, H, P_max, Nsc, Nss, method):
         noise_power: Noise power (scalar)
         H: Channel gain matrix (NxN)
         P_max: Maximum power constraint (scalar)
-        Nsc: Number of subcarriers
-        Nss: Number of spatial streams
+        NSC: Number of subcarriers
+        NSS: Number of spatial streams
 
         Returns:
         P_opt: Optimized power allocation vector (N,)
@@ -570,7 +570,7 @@ def power_allocation(N, noise_power, H, P_max, Nsc, Nss, method):
 
         # Objective function to minimize (negative of log-product of rates)
         def objective(P):
-            return -compute_rates(P, H, noise_power, N, Nsc, Nss)
+            return -compute_rates(P, H, noise_power, N, NSC, NSS)
 
         # Run optimization via scipy.optimize.minimize
         result = minimize(
@@ -587,7 +587,7 @@ def power_allocation(N, noise_power, H, P_max, Nsc, Nss, method):
             return P0
     ####################################################################################################################
 
-    def power_allocation_differential_evolution(N, noise_power, H, P_max, Nsc, Nss):
+    def power_allocation_differential_evolution(N, noise_power, H, P_max, NSC, NSS):
         """
         Optimizes power allocation using Differential Evolution (DE)
         to maximize proportional fairness.
@@ -595,7 +595,7 @@ def power_allocation(N, noise_power, H, P_max, Nsc, Nss, method):
 
         # Negative of compute_rates for maximization
         def objective(P):
-            return -compute_rates(P, H, noise_power, N, Nsc, Nss)
+            return -compute_rates(P, H, noise_power, N, NSC, NSS)
 
         # Define bounds for power allocation
         bounds = [(0, P_max) for _ in range(N)]
@@ -614,11 +614,11 @@ def power_allocation(N, noise_power, H, P_max, Nsc, Nss, method):
     if method == None:
         P_opt = P = np.full(N, P_max)
     elif method == 'PSO':   # Particle Swarm Optimization
-        P_opt = power_allocation_particleswarm(N, noise_power, H, P_max, Nsc, Nss)
+        P_opt = power_allocation_particleswarm(N, noise_power, H, P_max, NSC, NSS)
     elif method == 'IPOPT': # Several methods inside. CUrrently selected: SQP
-        P_opt = power_allocation_ipyopt(N, noise_power, H, P_max, Nsc, Nss)
+        P_opt = power_allocation_ipyopt(N, noise_power, H, P_max, NSC, NSS)
     elif method == 'DE':    # DIfferential Evolution
-        P_opt = power_allocation_differential_evolution(N, noise_power, H, P_max, Nsc, Nss)
+        P_opt = power_allocation_differential_evolution(N, noise_power, H, P_max, NSC, NSS)
     else:
         raise ValueError(f"Unsupported optimization method: {method}")
 
@@ -626,16 +626,16 @@ def power_allocation(N, noise_power, H, P_max, Nsc, Nss, method):
 ####################################################################################################################
 
 # Function to compute the number of aggregated packets that can be transmitted in a given time
-def tx_packets(Nsc, N_bps, Rc, Nss, data_tx_time):
+def tx_packets(NSC, N_bps, Rc, NSS, data_tx_time):
     """
     Calculates the number of aggregated packets (A-MPDU length) that can be transmitted 
     within the given data transmission time.
 
     Args:
-    Nsc (int): Number of subcarriers
+    NSC (int): Number of subcarriers
     N_bps (int): Number of coded bits per subcarrier per stream
     Rc (float): Rate of coding
-    Nss (int): Number of spatial streams
+    NSS (int): Number of spatial streams
     data_tx_time (float): Data transmission time in seconds
 
     Returns:
@@ -645,15 +645,15 @@ def tx_packets(Nsc, N_bps, Rc, Nss, data_tx_time):
     T_DFT = 12.8e-6  # OFDM symbol duration (seconds)
     T_GI = 0.8e-6    # Guard interval duration (seconds)
 
-    Lsf = 16         # Length of service field (bits)
-    Lmh = 240        # MAC header (bits)
-    Ld = 12000       # Frame size (bits)
-    Ltail = 18       # Tail bits (bits)
-    Lmd = 32         # MPDU Delimiter (bits)
+    LSF = 16         # Length of service field (bits)
+    LMH = 240        # MAC header (bits)
+    LD = 12000       # Frame size (bits)
+    LTAIL = 18       # Tail bits (bits)
+    LMD = 32         # MPDU Delimiter (bits)
 
     # Calculate the number of packets that can be transmitted
-    bits_available = np.floor(data_tx_time / (T_DFT + T_GI)) * (Nsc * N_bps * Rc * Nss)              # Total bits that can be transmitted
-    agg_packets = int(np.floor((bits_available - Lsf - Ltail) / (Lmd + Lmh + Ld)))  # Number of aggregated packets
+    bits_available = np.floor(data_tx_time / (T_DFT + T_GI)) * (NSC * N_bps * Rc * NSS)              # Total bits that can be transmitted
+    agg_packets = int(np.floor((bits_available - LSF - LTAIL) / (LMD + LMH + LD)))  # Number of aggregated packets
     
     if agg_packets > 1024:
         raise ValueError('Number of aggregated packets exceeds the maximum limit')
@@ -662,15 +662,15 @@ def tx_packets(Nsc, N_bps, Rc, Nss, data_tx_time):
 ####################################################################################################################
 
 # Function to compute the elapsed time for transmitting the given number of aggregated packets
-def elapsed_time_tx(Nsc, N_bps, Rc, Nss, tx_Packets):
+def elapsed_time_tx(NSC, N_bps, Rc, NSS, tx_Packets):
     """
     Calculates the elapsed time for transmitting the given number of aggregated packets.
 
     Args:
-    Nsc (int): Number of subcarriers
+    NSC (int): Number of subcarriers
     N_bps (int): Number of coded bits per subcarrier per stream
     Rc (float): Rate of coding
-    Nss (int): Number of spatial streams
+    NSS (int): Number of spatial streams
     tx_Packets (int): Number of aggregated packets
 
     Returns:
@@ -680,34 +680,32 @@ def elapsed_time_tx(Nsc, N_bps, Rc, Nss, tx_Packets):
     T_DFT = 12.8e-6  # OFDM symbol duration (seconds)
     T_GI = 0.8e-6    # Guard interval duration (seconds)
 
-    Lsf = 16         # Length of service field (bits)
-    Lmh = 240        # MAC header (bits)
-    Ld = 12000       # Frame size (bits)
-    Ltail = 18       # Tail bits (bits)
+    LSF = 16         # Length of service field (bits)
+    LMH = 240        # MAC header (bits)
+    LD = 12000       # Frame size (bits)
+    LTAIL = 18       # Tail bits (bits)
 
     if tx_Packets == 0:
-        Lmd = 0
+        LMD = 0
     else:
-        Lmd = 32         # MPDU Delimiter (bits)
+        LMD = 32         # MPDU Delimiter (bits)
 
     # Calculate the elapsed time for transmitting the packets
-    time_tx = np.ceil((Lsf + tx_Packets*(Lmd + Lmh + Ld) + Ltail)/(Nsc*N_bps*Rc*Nss))*(T_DFT + T_GI)
+    time_tx = np.ceil((LSF + tx_Packets*(LMD + LMH + LD) + LTAIL)/(NSC*N_bps*Rc*NSS))*(T_DFT + T_GI)
 
     return time_tx
 ####################################################################################################################
 
 # Function to compute the C-SR groups and the corresponding power allocation
-def CG_creationTPC(AP_number, STA_number, CSRoverheads, Pn_dBm, Nsc, Nss, 
-                   association, channelMatrix, MaxTxPower, TXOP_duration):
+def CG_creationTPC(AP_NUMBER, STA_NUMBER, CSRoverheads, PN_DBM, NSC, NSS, 
+                   association, channelMatrix, MaxTxPower, TXOP_DURATION):
     # Initialization
-    CG_size = AP_number  # Maximum number of APs per group
-    noise_power = 10**(Pn_dBm / 10)
+    CG_size = AP_NUMBER  # Maximum number of APs per group
+    noise_power = 10**(PN_DBM / 10)
     MaxTxPower = 10**(MaxTxPower / 10)
 
     
-    def generate_combinations(association, CG_size):
-        AP_number = len(association)
-        STA_number = sum(len(stas) for stas in association)
+    def generate_combinations(AP_NUMBER, STA_NUMBER, association, CG_size):
 
         # Step 1: Generate all possible combinations of STAs for each AP, including np.nan for NaN replacement
         u_with_placeholders = [np.array([np.nan] + stas, dtype=float) for stas in association]
@@ -737,12 +735,12 @@ def CG_creationTPC(AP_number, STA_number, CSRoverheads, Pn_dBm, Nsc, Nss,
         return valid_combinations
 
     # Function to generate all possible combinations of AP-STAs for a given association and CG_size
-    map_matrix = generate_combinations(association, CG_size)
+    map_matrix = generate_combinations(AP_NUMBER, STA_NUMBER, association, CG_size)
 
     # Create TxPowerMatrixTemp with the shape of map_matrix
     TxPowerMatrixTemp = np.full(map_matrix.shape, np.nan)
-    # Fill the first [0:STA_number] rows with MaxTxPower in the columns where map_matrix[0:STA_number] is non-NaN
-    TxPowerMatrixTemp[0:STA_number] = np.where(~np.isnan(map_matrix[0:STA_number]), MaxTxPower, np.nan)
+    # Fill the first [0:STA_NUMBER] rows with MaxTxPower in the columns where map_matrix[0:STA_NUMBER] is non-NaN
+    TxPowerMatrixTemp[0:STA_NUMBER] = np.where(~np.isnan(map_matrix[0:STA_NUMBER]), MaxTxPower, np.nan)
 
     # Other matrices initialization
     datarate = np.full_like(TxPowerMatrixTemp, np.nan)
@@ -764,7 +762,7 @@ def CG_creationTPC(AP_number, STA_number, CSRoverheads, Pn_dBm, Nsc, Nss,
             # TPC (Power allocation)
             method = 'PSO'  # Optimization method: None, 'PSO', 'IPOPT', 'DE'
             # Solving the Opt problem with the selected method
-            P = power_allocation(len(STAs), noise_power, H, MaxTxPower, Nsc, Nss, method)
+            P = power_allocation(len(STAs), noise_power, H, MaxTxPower, NSC, NSS, method)
 
             # Store the power vector in TxPowerMatrixTemp
             TxPowerMatrixTemp[i, APs] = P  
@@ -778,7 +776,7 @@ def CG_creationTPC(AP_number, STA_number, CSRoverheads, Pn_dBm, Nsc, Nss,
             if np.isnan(MCS):
                 datarate[i, APs[k]] = 0 #SINR under the threshold
             else:
-                datarate[i, APs[k]] = Nsc * N_bps * Rc * Nss / (12.8e-6 + 0.8e-6) # Datarate in bps
+                datarate[i, APs[k]] = NSC * N_bps * Rc * NSS / (12.8e-6 + 0.8e-6) # Datarate in bps
             
             # if the datarate using CSR is lower than the datarate without CSR, discard the combination
             if len(STAs) * datarate[i, APs[k]] >= datarate[STAs[k], APs[k]]:
@@ -812,7 +810,7 @@ def SimpleDCF_modelWithBEB(N, EDCAaccessCategory):
     p_ (float): COnditional collision probability
     """
     
-    MaxIter = 100
+    MAX_ITER = 100
     
     # Set CWmin and m based on EDCA access category
     if EDCAaccessCategory == 'BE':
@@ -828,16 +826,16 @@ def SimpleDCF_modelWithBEB(N, EDCAaccessCategory):
         raise ValueError("Invalid EDCA access category. Choose 'BE' or 'VI'.")
     
     # Initialize values
-    tau = np.zeros(MaxIter)
-    p = np.zeros(MaxIter)
-    EB = np.zeros(MaxIter)
+    tau = np.zeros(MAX_ITER)
+    p = np.zeros(MAX_ITER)
+    EB = np.zeros(MAX_ITER)
     
     tau[0] = 2 / (CWmin + 2)
     p[0] = 0
     EB[0] = 0
     
     # Fixed-point iterative approach to obtain tau and p
-    for i in range(MaxIter - 1):
+    for i in range(MAX_ITER - 1):
         # Collision Probability
         p[i + 1] = 1 - (1 - tau[i]) ** (N - 1)
         
@@ -853,28 +851,28 @@ def SimpleDCF_modelWithBEB(N, EDCAaccessCategory):
         if i > 4:
             tau[i + 1] = (1 / 4) * (tau[i + 1] + tau[i] + tau[i - 1] + tau[i - 2])
     
-    tau_ = tau[MaxIter - 1]
-    EB_ = EB[MaxIter - 1]
-    p_ = p[MaxIter - 1]
+    tau_ = tau[MAX_ITER - 1]
+    EB_ = EB[MAX_ITER - 1]
+    p_ = p[MAX_ITER - 1]
     
     return tau_, EB_, p_
 ####################################################################################################################
 
 # Function to compute the throughput using Bianchi's model
-def Throughput_DCF_bianchi(AP_number, STA_number, association, RSSI_dB_vector_to_export, 
-                            Pn_dBm, Nsc, Nss, TXOP_duration, DCFoverheads, EDCAaccessCategory):
+def Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to_export, 
+                            PN_DBM, NSC, NSS, TXOP_DURATION, DCFoverheads, EDCAaccessCategory):
     """
     Computes the per-station throughput using Bianchi's model.
     
     Args:
-    AP_number (int): Number of access points
-    STA_number (int): Number of stations
+    AP_NUMBER (int): Number of access points
+    STA_NUMBER (int): Number of stations
     association (list): List of associations for each AP
     RSSI_dB_vector_to_export (numpy array): RSSI values in dB
-    Pn_dBm (float): Noise power in dBm
-    Nsc (int): Number of subcarriers
-    Nss (int): Number of spatial streams
-    TXOP_duration (float): TXOP duration
+    PN_DBM (float): Noise power in dBm
+    NSC (int): Number of subcarriers
+    NSS (int): Number of spatial streams
+    TXOP_DURATION (float): TXOP duration
     DCFoverheads (float): DCF overheads
     EDCAaccessCategory (str): EDCA access category ('VI' or 'BE')
     
@@ -888,30 +886,30 @@ def Throughput_DCF_bianchi(AP_number, STA_number, association, RSSI_dB_vector_to
     TCTS = 48E-6        # CTS duration
     
     L = 12e3            # Single frame length
-    Te = 9e-6           # Duration of a single backoff slot
+    TE = 9e-6           # Duration of a single backoff slot
     
     AIFSN = 2 if EDCAaccessCategory in ['VI', 'VO'] else 3
     
-    AIFS = AIFSN * Te + TSIFS  # AIFSN*slotTime + SIFS
-    Tcoll = TRTS + TSIFS + TCTS + AIFS + Te  # Collision duration
+    AIFS = AIFSN * TE + TSIFS  # AIFSN*slotTime + SIFS
+    Tcoll = TRTS + TSIFS + TCTS + AIFS + TE  # Collision duration
     
     # Bianchi's parameters
-    tau, _, _ = SimpleDCF_modelWithBEB(AP_number, EDCAaccessCategory)
-    pe = (1 - tau) ** AP_number
-    ps = AP_number * tau * (1 - tau) ** (AP_number - 1)
+    tau, _, _ = SimpleDCF_modelWithBEB(AP_NUMBER, EDCAaccessCategory)
+    pe = (1 - tau) ** AP_NUMBER
+    ps = AP_NUMBER * tau * (1 - tau) ** (AP_NUMBER - 1)
     pc = 1 - pe - ps
     
     # Initialize throughput calculations
-    rx_packets = np.zeros(STA_number)
-    per_STA_DCF_throughput_bianchi = np.zeros(STA_number)
+    rx_packets = np.zeros(STA_NUMBER)
+    per_STA_DCF_throughput_bianchi = np.zeros(STA_NUMBER)
     
     # Initialize MCS parameters
-    MCS = np.zeros(STA_number)
-    N_bps = np.zeros(STA_number)
-    Rc = np.zeros(STA_number)
+    MCS = np.zeros(STA_NUMBER)
+    N_bps = np.zeros(STA_NUMBER)
+    Rc = np.zeros(STA_NUMBER)
     
     # Loop through each STA
-    for kk in range(STA_number):
+    for kk in range(STA_NUMBER):
         # Find the rows (APs) where STA kk is associated
         ap_indices = [ap_idx for ap_idx, ap_stas in enumerate(association) if kk in ap_stas]
     
@@ -919,29 +917,29 @@ def Throughput_DCF_bianchi(AP_number, STA_number, association, RSSI_dB_vector_to
         # num_associated_stas = sum(len(association[ap_idx]) for ap_idx, ap_stas in enumerate(association) if kk + 1 in ap_stas)
     
         # Probability of STA_kk being selected
-        p_STA = 1 / (AP_number * len(association[ap_indices[0]]))
+        p_STA = 1 / (AP_NUMBER * len(association[ap_indices[0]]))
         
         # Calculate SINR and MCS
-        SINR_db = RSSI_dB_vector_to_export[kk, ap_indices] - Pn_dBm  # SINR calculation
+        SINR_db = RSSI_dB_vector_to_export[kk, ap_indices] - PN_DBM  # SINR calculation
         MCS[kk], N_bps[kk], Rc[kk] = MCS_cal_PER_001(SINR_db)  # MCS calculation
         
         if np.isnan(MCS[kk]):
             raise ValueError("Invalid MCS")
         
         # Calculate received packets
-        rx_packets[kk] = tx_packets(Nsc, N_bps[kk], Rc[kk], Nss, TXOP_duration - DCFoverheads)
+        rx_packets[kk] = tx_packets(NSC, N_bps[kk], Rc[kk], NSS, TXOP_DURATION - DCFoverheads)
         if rx_packets[kk] > 1024:
             raise ValueError("Impossible to transmit more than 1024 MSDUs")
         
         # Throughput calculation following Bianchi's model
-        per_STA_DCF_throughput_bianchi[kk] = p_STA * ps * rx_packets[kk] * L / (1e6 * (pe * Te + ps * TXOP_duration + pc * Tcoll))
+        per_STA_DCF_throughput_bianchi[kk] = p_STA * ps * rx_packets[kk] * L / (1e6 * (pe * TE + ps * TXOP_DURATION + pc * Tcoll))
     
     return per_STA_DCF_throughput_bianchi
 ####################################################################################################################
 
 # Function to compute the CSR throughput extending Bianchi's model 
-def Throughput_CSR_bianchi(AP_number, STA_number, CGs_STAs, TxPowerMatrix, channelMatrix, Pn_dBm, Nsc, Nss, TXOP_duration, CSRoverheads, EDCAaccessCategory):
-    noise_power = 10**(Pn_dBm / 10)
+def Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, CGs_STAs, TxPowerMatrix, channelMatrix, PN_DBM, NSC, NSS, TXOP_DURATION, CSRoverheads, EDCAaccessCategory):
+    noise_power = 10**(PN_DBM / 10)
     
     # MAPC overheads
     TSIFS = 16e-6             # Shortest Interframe spacing (SIFS time)
@@ -951,7 +949,7 @@ def Throughput_CSR_bianchi(AP_number, STA_number, CGs_STAs, TxPowerMatrix, chann
 
     # Initialize the rx_packets and per_STA_rx_packets arrays
     rx_packets = np.zeros(CGs_STAs.shape)
-    per_STA_rx_packets = {sta: [] for sta in range(STA_number)}
+    per_STA_rx_packets = {sta: [] for sta in range(STA_NUMBER)}
 
     for i in range(CGs_STAs.shape[0]):
 
@@ -974,7 +972,7 @@ def Throughput_CSR_bianchi(AP_number, STA_number, CGs_STAs, TxPowerMatrix, chann
                 rx_packets[i, APs[k]] = 0
             else:
                 # Assuming tx_packets is a function that calculates the number of packets transmitted
-                rx_packets[i, APs[k]] = tx_packets(Nsc, N_bps[k], Rc[k], Nss, TXOP_duration - CSRoverheads)
+                rx_packets[i, APs[k]] = tx_packets(NSC, N_bps[k], Rc[k], NSS, TXOP_DURATION - CSRoverheads)
             
             if rx_packets[i, APs[k]] > 1024:
                 raise ValueError('Impossible to transmit more than 1024 MSDUs')
@@ -985,10 +983,10 @@ def Throughput_CSR_bianchi(AP_number, STA_number, CGs_STAs, TxPowerMatrix, chann
     L = 12e3  # Frame length (bytes)
     
     # DL calculation
-    tau_DL, _, prob_col_bianchi = SimpleDCF_modelWithBEB(AP_number, EDCAaccessCategory)
+    tau_DL, _, prob_col_bianchi = SimpleDCF_modelWithBEB(AP_NUMBER, EDCAaccessCategory)
     
-    pe_DL = (1 - tau_DL) ** AP_number
-    ps_DL = AP_number * tau_DL * (1 - tau_DL) ** (AP_number - 1)
+    pe_DL = (1 - tau_DL) ** AP_NUMBER
+    ps_DL = AP_NUMBER * tau_DL * (1 - tau_DL) ** (AP_NUMBER - 1)
     pc_DL = 1 - pe_DL - ps_DL
 
     # Access category AIFSN and AIFS calculation
@@ -998,9 +996,9 @@ def Throughput_CSR_bianchi(AP_number, STA_number, CGs_STAs, TxPowerMatrix, chann
 
     p_comb = 1 / CGs_STAs.shape[0]  # Round-robin transmission probability
     
-    DL_throughput_CSR_bianchi = np.zeros(STA_number)
-    for kk in range(STA_number):
-        DL_throughput_CSR_bianchi[kk] = p_comb * ps_DL * L * np.sum(per_STA_rx_packets[kk]) / (1e6 * (pe_DL * Te + ps_DL * TXOP_duration + pc_DL * Tcoll))
+    DL_throughput_CSR_bianchi = np.zeros(STA_NUMBER)
+    for kk in range(STA_NUMBER):
+        DL_throughput_CSR_bianchi[kk] = p_comb * ps_DL * L * np.sum(per_STA_rx_packets[kk]) / (1e6 * (pe_DL * Te + ps_DL * TXOP_DURATION + pc_DL * Tcoll))
         if DL_throughput_CSR_bianchi[kk] <= 0:
             raise ValueError('Throughput <= 0 is not allowed')
     

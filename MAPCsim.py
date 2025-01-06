@@ -6,19 +6,19 @@ class MAPCsim:
     Traffic class to handle the traffic generated for the STAs
     """
 
-    def __init__(self, n_APs, n_STAs, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop,
-                 validationFlag, TXOP_duration, Pn_dBm, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR,
+    def __init__(self, AP_NUMBER, STA_NUMBER, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop,
+                 validationFlag, TXOP_DURATION, PN_DBM, NSS, NSC, preTX_overheadsDCF, preTX_overheadsCSR,
                  DCFoverheads, CSRoverheads):
         # System-related
-        self._TXOP_duration = TXOP_duration                              # Duration of a TXOP
-        self._noise_power = 10 ** (Pn_dBm / 10)                          # Noise power in mW
+        self._TXOP_DURATION = TXOP_DURATION                              # Duration of a TXOP
+        self._NOISE_POWER = 10 ** (PN_DBM / 10)                          # Noise power in mW
         self._MaxTxPower = 10 ** (MaxTxPower / 10)                       # Maximum transmission power in mW
-        self._Nss = Nss                                                  # Number of spatial streams
-        self._Nsc = Nsc                                                  # Number of subcarriers
+        self._NSS = NSS                                                  # Number of spatial streams
+        self._NSC = NSC                                                  # Number of subcarriers
 
         # Scenario-related
-        self.n_APs = n_APs                                                # Number of APs                                                   
-        self.n_STAs = n_STAs                                              # Number of STAs
+        self.AP_NUMBER = AP_NUMBER                                                # Number of APs                                                   
+        self.STA_NUMBER = STA_NUMBER                                              # Number of STAs
         self._association = association                                   # Association matrix
         self._channelMatrix = channelMatrix                               # Channel matrix
         
@@ -32,27 +32,27 @@ class MAPCsim:
         self.delivery_timestamp_record = []                               # Stores the delivery time of the packets of all STAs
         self._STA_queue_state = []                                        # Stores the state of the packets of all STAs. True = not transmitted, False = transmitted
         
-        self._firstPosTimestamp = np.zeros((self.n_STAs,), dtype=float)   # Stores the timestamp of the first non-transmitted packet of each STA
-        self._firstPosPosition = np.zeros((self.n_STAs,), dtype=int)      # Stores the position of the first non-transmitted packet of each STA
-        self._lastPosTimestamp = np.zeros((self.n_STAs,), dtype=float)    # Stores the max timestamp among the available packets (arrived before sim_timeline) of each STA
-        self._lastPosPosition = np.zeros((self.n_STAs,), dtype=int)       # Stores the position of the packet reffered to lastPosTimestamp
+        self._firstPosTimestamp = np.zeros((self.STA_NUMBER,), dtype=float)   # Stores the timestamp of the first non-transmitted packet of each STA
+        self._firstPosPosition = np.zeros((self.STA_NUMBER,), dtype=int)      # Stores the position of the first non-transmitted packet of each STA
+        self._lastPosTimestamp = np.zeros((self.STA_NUMBER,), dtype=float)    # Stores the max timestamp among the available packets (arrived before sim_timeline) of each STA
+        self._lastPosPosition = np.zeros((self.STA_NUMBER,), dtype=int)       # Stores the position of the packet reffered to lastPosTimestamp
 
         # Simulation-related
         self.simulation_system : str                                      # Simulation system -> DCF or CSR
         self.validationFlag = validationFlag                              # Validation flag -> 'yes' or 'no'
 
         # Backoff-related
-        self._APs_packet_indicator = np.zeros((self.n_APs,), dtype=bool)  # Vector indicating whether each AP has packets to transmit
-        self._backoffValues = np.zeros((self.n_APs,), dtype=int)          # Backoff values for each AP
-        self._backoffStage = np.zeros((self.n_APs,), dtype=int)           # Backoff stage for each AP
+        self._APs_packet_indicator = np.zeros((self.AP_NUMBER,), dtype=bool)  # Vector indicating whether each AP has packets to transmit
+        self._backoffValues = np.zeros((self.AP_NUMBER,), dtype=int)          # Backoff values for each AP
+        self._backoffStage = np.zeros((self.AP_NUMBER,), dtype=int)           # Backoff stage for each AP
         self._CWmin : int                                                 # Minimum contention window
         self._maxBackoffStage : int                                       # Maximum backoff stage
         self._AIFS : float                                                # Arbitration Inter-Frame Space
         
 
         # TXOP-related
-        self._TXOPwinNumber = np.zeros((self.n_APs,), dtype=int)          # Number of TXOP wins for each AP
-        self._TXOPcollision = np.zeros((self.n_APs,), dtype=int)          # Number of TXOP collisions for each AP
+        self._TXOPwinNumber = np.zeros((self.AP_NUMBER,), dtype=int)          # Number of TXOP wins for each AP
+        self._TXOPcollision = np.zeros((self.AP_NUMBER,), dtype=int)          # Number of TXOP collisions for each AP
         self.preTX_overheadsDCF = preTX_overheadsDCF                      # Amount of time per TXOP before the data transmission begins using DCF 
         self.preTX_overheadsCSR = preTX_overheadsCSR                      # Amount of time per TXOP before the data transmission begins using CSR
         self.DCFoverheads = DCFoverheads                                  # Total amount of DCF overheads 
@@ -66,15 +66,15 @@ class MAPCsim:
                                                         #             - Random selection: 'Random'
                                                         #             - TAT selection: 'TAT'
                                                         #             - Hybrid selection: 'Hybrid'
-        self.alpha_ = 0.5                                                  # Alpha value for TAT. Default value is 0.5
-        self.beta_ = 0.5                                                   # Beta value for TAT. Default value is 0.5
+        self.alpha = 0.5                                                  # Alpha value for TAT. Default value is 0.5
+        self.beta = 0.5                                                   # Beta value for TAT. Default value is 0.5
         
         # Results
-        self.STAselectionCounter = np.zeros((self.n_STAs,), dtype=int)    # Counter for the number of times each STA is selected
-        self.throughput_sim = np.zeros((self.n_STAs,), dtype=float)                    # Throughput of each STA
+        self.STAselectionCounter = np.zeros((self.STA_NUMBER,), dtype=int)    # Counter for the number of times each STA is selected
+        self.throughput_sim = np.zeros((self.STA_NUMBER,), dtype=float)                    # Throughput of each STA
         self.delay_per_STA = []                                           # Delay of each STA
         self.delayvector = []                                             # Delay matrix (all STAs)         
-        self.APcollision_prob = np.zeros((self.n_APs,), dtype=float)      # Collision probability of each AP
+        self.APcollision_prob = np.zeros((self.AP_NUMBER,), dtype=float)      # Collision probability of each AP
 
     def UpdateAP(self, sim_timeline):
         """
@@ -83,7 +83,7 @@ class MAPCsim:
         # Vectorized operation to check if any associated STA has packets to transmit
         self._APs_packet_indicator = np.array([
             np.any(self._firstPosTimestamp[self._association[k]] <= sim_timeline)
-            for k in range(self.n_APs)
+            for k in range(self.AP_NUMBER)
         ], dtype=bool)
 
     def UpdateSTA(self, STA_rx, rx_vector_pos, sim_timeline, temp_elapsed_time):
@@ -159,8 +159,8 @@ class MAPCsim:
             if self.validationFlag == 'yes':
                 # TODO: Check!!!!!!!
                 # Round Robin scheduling for validation
-                if sum(self._firstPosPosition) == self.n_STAs:
-                    for k in range(self.n_APs):
+                if sum(self._firstPosPosition) == self.STA_NUMBER:
+                    for k in range(self.AP_NUMBER):
                         self.rrobin_DCF_group_selector[k][:] = [1] + [0] * (len(self._association[k]) - 1)
                 
                 STA_rx = self._association[TXOPwinner][np.where(self.rrobin_DCF_group_selector[TXOPwinner] == 1)[0][0]]
@@ -174,9 +174,9 @@ class MAPCsim:
         else:
             # Scheduling logic for other systems
             CGs = self.CGs_STAs.copy()
-            per_STA_ScorePackets = np.zeros(self.n_STAs, dtype=int)
+            per_STA_ScorePackets = np.zeros(self.STA_NUMBER, dtype=int)
 
-            for j in range(self.n_STAs):
+            for j in range(self.STA_NUMBER):
                 if self._firstPosTimestamp[j] > sim_timeline: # If the first packet is not available to be transmitted
                     CGs[np.where(CGs == j)] = np.nan # Remove the STA from the CGs
                     continue
@@ -202,7 +202,7 @@ class MAPCsim:
             uni = []                            # Unique STAs
             ScorePackets = []                   # Score based on the number of packets
             ScoreTimeOldest = []                # Score based on the oldest packet (timestamp)
-            ScoreTAT = []                       # Score based on TAT----->   delta_nt + self.beta_ * (Delta_nt - self.alpha_ * delta_nt)
+            ScoreTAT = []                       # Score based on TAT----->   delta_nt + self.beta * (Delta_nt - self.alpha * delta_nt)
 
             for i in np.where(~np.all(np.isnan(CGs), axis=1))[0]:
                 u = CGs[i][~np.isnan(CGs[i])].astype(int)
@@ -222,7 +222,7 @@ class MAPCsim:
                     if len(u) == 1:
                         ScoreTAT.append(delta_nt)
                     else:
-                        ScoreTAT.append(delta_nt + self.beta_ * (Delta_nt - self.alpha_ * delta_nt))
+                        ScoreTAT.append(delta_nt + self.beta * (Delta_nt - self.alpha * delta_nt))
 
             if self.validationFlag == 'yes':
                 if self.rrobin_CSR_group_selector == 0:
@@ -285,7 +285,7 @@ class MAPCsim:
             P = self.TxPowerMatrix[idx, APs]
 
         # Computing the SINR in dB 
-        SINR_db = 10 * np.log10((P * np.diag(H)) / (self._noise_power + np.sum(H * P, axis=1) - np.diag(H) * P))
+        SINR_db = 10 * np.log10((P * np.diag(H)) / (self._NOISE_POWER + np.sum(H * P, axis=1) - np.diag(H) * P))
         
         for k, sta in enumerate(STA_rx):
             # MCS-related
@@ -297,7 +297,7 @@ class MAPCsim:
                 Pe = 1e-2
 
             # Number of packets that can be aggregated
-            agg_packets[k] = tx_packets(self._Nsc, N_bps, Rc, self._Nss, data_tx_time)
+            agg_packets[k] = tx_packets(self._NSC, N_bps, Rc, self._NSS, data_tx_time)
             # first packet available (position) for the sta
             firstPos = self._firstPosPosition[sta]
             # last packet available (position) for the sta
@@ -322,7 +322,7 @@ class MAPCsim:
                 # properly received packets, considering the ones lost (if any)
                 rx_vector_pos = [p for p in tx_vector_pos if p not in lost_packets]
                 # elapsed time due to the transmission
-                temp_elapsed_time[k] = elapsed_time_tx(self._Nsc, N_bps, Rc, self._Nss, tx_Packets[k])
+                temp_elapsed_time[k] = elapsed_time_tx(self._NSC, N_bps, Rc, self._NSS, tx_Packets[k])
             # Update STA
             self.UpdateSTA(sta, rx_vector_pos, sim_timeline, temp_elapsed_time[k])
 
@@ -330,7 +330,7 @@ class MAPCsim:
     
     def TrafficAnalysis(self):
         """Analysis of the results."""
-        for j in range(self.n_STAs):  # Per STA Analysis
+        for j in range(self.STA_NUMBER):  # Per STA Analysis
             # Find the last transmitted packet index
             last_tx_packet = np.where(self._STA_queue_state[j] == False)[0][-1] if np.any(self._STA_queue_state[j] == False) else None
 
@@ -349,7 +349,7 @@ class MAPCsim:
             self.delay_per_STA.append(delay)
             self.delayvector = np.concatenate((self.delayvector, delay))
 
-        for jj in range(self.n_APs):  # Per AP analysis
+        for jj in range(self.AP_NUMBER):  # Per AP analysis
             if self._TXOPwinNumber[jj] == 0:
                 self.APcollision_prob[jj] = 0
             else:
@@ -385,10 +385,10 @@ class MAPCsim:
         else:
             raise ValueError("Invalid access category")
 
-        self._backoffValues = np.random.randint(0, self._CWmin, size=self.n_APs)
+        self._backoffValues = np.random.randint(0, self._CWmin, size=self.AP_NUMBER)
         self._AIFS = AIFSN * 9e-6 + 16e-6
 
-    def Start(self):
+    def Run(self):
         """Simulation process."""
         sim_timeline = 0
 
@@ -406,10 +406,10 @@ class MAPCsim:
 
             if self.simulation_system == "DCF":
                 sim_timeline += self.preTX_overheadsDCF
-                data_tx_time = self._TXOP_duration - self.DCFoverheads
+                data_tx_time = self._TXOP_DURATION - self.DCFoverheads
             else:
                 sim_timeline += self.preTX_overheadsCSR
-                data_tx_time = self._TXOP_duration - self.CSRoverheads
+                data_tx_time = self._TXOP_DURATION - self.CSRoverheads
 
             elapsed_time = self.TXtimeCalc(STA_rx, APs, sim_timeline, data_tx_time)
 

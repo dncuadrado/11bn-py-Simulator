@@ -12,15 +12,15 @@ import os
 # Helper function to simulate one iteration
 def simulate_iteration(i):
     # Deployment-dependent data
-    AP_matrix, _ = AP_STA_coordinates(AP_number, STA_number, scenario_type, grid_value)
+    AP_matrix, _ = AP_STA_coordinates(AP_NUMBER, STA_NUMBER, SCENARIO_TYPE, GRID_VALUE)
     STA_matrix = STA_matrix_save[:,:,i]
 
-    association = AP_STA_Association(AP_number, STA_number, scenario_type)
+    association = AP_STA_Association(AP_NUMBER, STA_NUMBER, SCENARIO_TYPE)
 
     # Call the function to plot
-    # PlotDeployment(AP_matrix, STA_matrix, association, grid_value, walls)
+    # PlotDeployment(AP_matrix, STA_matrix, association, GRID_VALUE, walls)
 
-    # channelMatrix, RSSI_dB_vector_to_export = GetChannelMatrix(MaxTxPower, Cca, AP_matrix, STA_matrix, scenario_type, walls, checkSegmentIntersection, Getloss)
+    # channelMatrix, RSSI_dB_vector_to_export = GetChannelMatrix(MaxTxPower, CCA, AP_matrix, STA_matrix, SCENARIO_TYPE, walls, checkSegmentIntersection, Getloss)
     channelMatrix = channelMatrix_save[:,:,i]
     RSSI_dB_vector_to_export = RSSI_dB_vector_to_export_save[:,:,i]
 
@@ -28,12 +28,12 @@ def simulate_iteration(i):
     preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads = OverheadsCalc(EDCAaccessCategory)
 
     # Compute Throughput DCF and CSR
-    CGs_STAs, TxPowerMatrix = CG_creationTPC(AP_number, STA_number, CSRoverheads, Pn_dBm, Nsc, Nss, association, channelMatrix, MaxTxPower, TXOP_duration) 
+    CGs_STAs, TxPowerMatrix = CG_creationTPC(AP_NUMBER, STA_NUMBER, CSRoverheads, PN_DBM, NSC, NSS, association, channelMatrix, MaxTxPower, TXOP_DURATION) 
                                               
-    per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(AP_number, STA_number, association, RSSI_dB_vector_to_export, Pn_dBm, Nsc, Nss, TXOP_duration, 
+    per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to_export, PN_DBM, NSC, NSS, TXOP_DURATION, 
                                                             DCFoverheads, EDCAaccessCategory)
 
-    DL_throughput_CSR_bianchi = Throughput_CSR_bianchi(AP_number, STA_number, CGs_STAs, TxPowerMatrix, channelMatrix, Pn_dBm, Nsc, Nss, TXOP_duration,
+    DL_throughput_CSR_bianchi = Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, CGs_STAs, TxPowerMatrix, channelMatrix, PN_DBM, NSC, NSS, TXOP_DURATION,
                                                        CSRoverheads, EDCAaccessCategory)
                                                   
     return per_STA_DCF_throughput_bianchi, DL_throughput_CSR_bianchi
@@ -45,24 +45,25 @@ start_time = time.time()
 EDCAaccessCategory = 'VI'
 
 # Scenario-related
-AP_number = 4
-STA_number = 8
-grid_value = 40
-scenario_type = 'grid'
+AP_NUMBER = 4
+STA_NUMBER = 8
+GRID_VALUE = 40
+SCENARIO_TYPE = 'grid'
+
 sim = '20metros-8STAs'
-walls = np.array([[0, grid_value, grid_value/2, grid_value/2], 
-                  [grid_value/2, grid_value/2, 0, grid_value]])
+walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
+                  [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
 
 # System-related parameters
-TXOP_duration = 5E-3
-Pn_dBm = -95
-Cca = -82
+TXOP_DURATION = 5E-3
+PN_DBM = -95
+CCA = -82
 BW = 80
-Nss = 2
+NSS = 2
 L = 12E3
 
 # Channel-related parameters
-MaxTxPower, Nsc = TXpowerCalc(BW, Nss)
+MaxTxPower, NSC = TXpowerCalc(BW, NSS)
 
 # For reproducibility
 np.random.seed(1)  
@@ -78,29 +79,29 @@ with h5py.File(h5file_path, 'r') as f:
     RSSI_dB_vector_to_export_save = f['RSSI_dB_vector_to_export_save'][:]
 
 # Simulation parameters for parallel processing
-iterations = 100
+ITERATIONS = 100
 
 # # Result arrays for throughput
-per_STA_DCF_throughput_bianchi = np.zeros((iterations, STA_number))
-DL_throughput_CSR_bianchi = np.zeros((iterations, STA_number))
+per_STA_DCF_throughput_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
+DL_throughput_CSR_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
 
 # Pre-allocate result arrays
-per_STA_DCF_throughput_bianchi = np.zeros((iterations, STA_number))
-DL_throughput_CSR_bianchi = np.zeros((iterations, STA_number))
+per_STA_DCF_throughput_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
+DL_throughput_CSR_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
 
 
 # Run simulations with progress bar
-max_workers = 8  # Adjust the number of workers as needed
-with ProcessPoolExecutor(max_workers=max_workers) as executor:
+MAX_WORKERS = 8  # Adjust the number of workers as needed
+with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
     for i, (dcf_throughput, csr_throughput) in enumerate(
-        tqdm(executor.map(simulate_iteration, range(iterations), chunksize=10), 
-             total=iterations, desc="Simulating", unit=" iteration")
+        tqdm(executor.map(simulate_iteration, range(ITERATIONS), chunksize=10), 
+             total=ITERATIONS, desc="Simulating", unit=" iteration")
     ):
         per_STA_DCF_throughput_bianchi[i, :] = dcf_throughput
         DL_throughput_CSR_bianchi[i, :] = csr_throughput
 
 
-# for i in range(iterations):
+# for i in range(ITERATIONS):
 #     dcf_throughput, csr_throughput = simulate_iteration(i)
 #     per_STA_DCF_throughput_bianchi[i, :] = dcf_throughput
 #     DL_throughput_CSR_bianchi[i, :] = csr_throughput

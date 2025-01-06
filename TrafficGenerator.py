@@ -6,13 +6,13 @@ from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
 from Utils import *
 
-def TrafficGenerator(STA_number, validation_flag, traffic_type, traffic_load, L, 
+def TrafficGenerator(STA_NUMBER, validation_flag, traffic_type, traffic_load, L, 
                      per_STA_DCF_throughput_bianchi):
     """
     Generates a list of arrival times for each STA based on the specified traffic model.
     """
     # Number of packets transmitted during the simulation
-    event_number = 150000  
+    EVENT_NUMBER = 150000  
 
     # Traffic load configuration
     traffic_loads = {'low': 0.3, 'medium': 0.6, 'high': 0.9}
@@ -29,24 +29,24 @@ def TrafficGenerator(STA_number, validation_flag, traffic_type, traffic_load, L,
 
     # Traffic type selection
     if traffic_type == 'Poisson':
-        STAs_arrivals_matrix = poisson_fixed_events(STA_number, validation_flag, event_number, traffic_generation_rate)
+        STAs_arrivals_matrix = poisson_fixed_events(STA_NUMBER, validation_flag, EVENT_NUMBER, traffic_generation_rate)
     elif traffic_type == 'Bursty':
-        STAs_arrivals_matrix = generate_burst_traffic(STA_number, event_number, traffic_generation_rate)
+        STAs_arrivals_matrix = generate_burst_traffic(STA_NUMBER, EVENT_NUMBER, traffic_generation_rate)
     elif traffic_type == 'VR':
-        STAs_arrivals_matrix = generate_vr_traffic(STA_number, traffic_load, L)
+        STAs_arrivals_matrix = generate_vr_traffic(STA_NUMBER, traffic_load, L)
     else:
         raise ValueError("Invalid traffic type specified.")
 
     return STAs_arrivals_matrix
 
-def poisson_fixed_events(STA_number, validation_flag, event_number, traffic_generation_rate):
+def poisson_fixed_events(STA_NUMBER, validation_flag, EVENT_NUMBER, traffic_generation_rate):
     """
     Generate arrival times using a Poisson process for each STA.
     """
     STAs_arrivals_matrix = []
-    for _ in range(STA_number):
+    for _ in range(STA_NUMBER):
         # Generate exponential inter-arrival times
-        w = np.random.exponential(scale=1/traffic_generation_rate, size=event_number)
+        w = np.random.exponential(scale=1/traffic_generation_rate, size=EVENT_NUMBER)
         t = np.cumsum(w)
 
         # Validation flag handling
@@ -69,7 +69,7 @@ def poisson_fixed_events(STA_number, validation_flag, event_number, traffic_gene
 
     return STAs_arrivals_matrix
 
-def generate_burst_traffic(STA_number, event_number, traffic_generation_rate):
+def generate_burst_traffic(STA_NUMBER, EVENT_NUMBER, traffic_generation_rate):
     """
     Generate bursty traffic arrivals for each STA.
     """
@@ -85,18 +85,18 @@ def generate_burst_traffic(STA_number, event_number, traffic_generation_rate):
     # Adjusted generation rate during ON periods
     adjusted_generation_rate = traffic_generation_rate / on_off_ratio
 
-    for i in range(STA_number):
-        arrival_times = np.zeros(event_number)  # Preallocate space for arrival times
+    for i in range(STA_NUMBER):
+        arrival_times = np.zeros(EVENT_NUMBER)  # Preallocate space for arrival times
         current_time = 0  # Start at time 0
         total_packets_generated = 0  # Track the total number of packets generated
 
-        while total_packets_generated < event_number:
+        while total_packets_generated < EVENT_NUMBER:
             # ON period: Generate packets based on adjusted_generation_rate
             on_period_duration = np.random.exponential(average_on_time)
             packets_in_burst = int(on_period_duration * adjusted_generation_rate)
 
             for _ in range(packets_in_burst):
-                if total_packets_generated >= event_number:
+                if total_packets_generated >= EVENT_NUMBER:
                     break
                 inter_arrival_time = np.random.exponential(1 / adjusted_generation_rate)
                 current_time += inter_arrival_time
@@ -121,7 +121,7 @@ def generate_burst_traffic(STA_number, event_number, traffic_generation_rate):
 
     return STAs_arrivals_matrix
 
-def generate_vr_traffic(STA_number, traffic_load, L):
+def generate_vr_traffic(STA_NUMBER, traffic_load, L):
     """
     Generate VR traffic arrivals for each STA.
     """
@@ -132,7 +132,7 @@ def generate_vr_traffic(STA_number, traffic_load, L):
     stop_timestamp = 20
 
     STAs_arrivals_matrix = []
-    for _ in range(STA_number):
+    for _ in range(STA_NUMBER):
         current_time = np.random.uniform(0, frame_interval)
         interarrival_times = []
         while current_time < stop_timestamp:
@@ -170,16 +170,16 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration, STA_matrix_sa
 
     # Generate per-STA DCF throughput using your existing logic
     # Simulate necessary steps for the deployment
-    association = AP_STA_Association(AP_number, STA_number, scenario_type)
+    association = AP_STA_Association(AP_NUMBER, STA_NUMBER, SCENARIO_TYPE)
     _, _, DCFoverheads, _ = OverheadsCalc(EDCAaccessCategory)
 
     per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(
-        AP_number, STA_number, association, RSSI_dB_vector_to_export, Pn_dBm, Nsc, Nss, 
-        TXOP_duration, DCFoverheads, EDCAaccessCategory
+        AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to_export, PN_DBM, Nsc, NSS, 
+        TXOP_DURATION, DCFoverheads, EDCAaccessCategory
     )
 
     # Generate traffic for the current iteration
-    STAs_arrivals_matrix = TrafficGenerator(STA_number, validation_flag, traffic_type, traffic_load, L, 
+    STAs_arrivals_matrix = TrafficGenerator(STA_NUMBER, validation_flag, traffic_type, traffic_load, L, 
                                             per_STA_DCF_throughput_bianchi)
     return STAs_arrivals_matrix
 
@@ -199,27 +199,27 @@ if __name__ == "__main__":
     }
 
     # Scenario-related
-    AP_number = 4
-    STA_number = 16
-    grid_value = 60
-    scenario_type = 'grid'
+    AP_NUMBER = 4
+    STA_NUMBER = 16
+    GRID_VALUE = 60
+    SCENARIO_TYPE = 'grid'
     sim = '30metros-16STAs'
-    walls = np.array([[0, grid_value, grid_value/2, grid_value/2], 
-                    [grid_value/2, grid_value/2, 0, grid_value]])
+    walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
+                    [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
 
     # System-related parameters
-    TXOP_duration = 5E-3
-    Pn_dBm = -95
-    Cca = -82
+    TXOP_DURATION = 5E-3
+    PN_DBM = -95
+    CCA = -82
     BW = 80
-    Nss = 2
+    NSS = 2
     L = 12E3
 
-    iterations = 100
+    ITERATIONS = 100
 
 
     ### Channel-related parameters
-    MaxTxPower, Nsc = TXpowerCalc(BW, Nss)
+    MaxTxPower, Nsc = TXpowerCalc(BW, NSS)
 
     # Seed for reproducibility
     rndGeneration = {
@@ -240,8 +240,8 @@ if __name__ == "__main__":
     output_dir = os.path.join(os.getcwd(), 'traffic datasets')
 
     # Run simulations with progress bar
-    max_workers = 8  # Adjust the number of workers as needed
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+    MAX_WORKERS = 8  # Adjust the number of workers as needed
+    with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
         for traffic_type in traffic_types:
             for traffic_load in traffic_loads[traffic_type]:
                 futures = [
@@ -249,7 +249,7 @@ if __name__ == "__main__":
                         simulate_iteration, sim, traffic_type, traffic_load, i, 
                         STA_matrix_save, channelMatrix_save, RSSI_dB_vector_to_export_save
                     )
-                    for i in range(iterations)
+                    for i in range(ITERATIONS)
                 ]
                 for i, future in enumerate(tqdm(futures, desc=f"{traffic_type} {traffic_load}", unit=" iteration")):
                     try:

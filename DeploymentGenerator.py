@@ -16,19 +16,19 @@ def simulate_iteration(i):
     stop = 0
     while stop == 0:
         # Deployment-dependent data
-        AP_matrix, STA_matrix = AP_STA_coordinates(AP_number, STA_number, scenario_type, grid_value)
+        AP_matrix, STA_matrix = AP_STA_coordinates(AP_NUMBER, STA_NUMBER, SCENARIO_TYPE, GRID_VALUE)
 
-        association = AP_STA_Association(AP_number, STA_number, scenario_type)
+        association = AP_STA_Association(AP_NUMBER, STA_NUMBER, SCENARIO_TYPE)
 
         # Call the function to plot
-        # PlotDeployment(AP_matrix, STA_matrix, association, grid_value, walls)
+        # PlotDeployment(AP_matrix, STA_matrix, association, GRID_VALUE, walls)
 
-        channelMatrix, RSSI_dB_vector_to_export = GetChannelMatrix(MaxTxPower, Cca, AP_matrix, STA_matrix, scenario_type, walls, checkSegmentIntersection, Getloss)
+        channelMatrix, RSSI_dB_vector_to_export = GetChannelMatrix(MaxTxPower, CCA, AP_matrix, STA_matrix, SCENARIO_TYPE, walls, checkSegmentIntersection, Getloss)
 
         # Overheads
         _, _, DCFoverheads, _ = OverheadsCalc(EDCAaccessCategory)
                                      
-        per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(AP_number, STA_number, association, RSSI_dB_vector_to_export, Pn_dBm, Nsc, Nss, TXOP_duration, 
+        per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to_export, PN_DBM, NSC, NSS, TXOP_DURATION, 
                                                                 DCFoverheads, EDCAaccessCategory)
         
         if 0.9*np.min(per_STA_DCF_throughput_bianchi) > 30:   # Compare against the VR bitrate
@@ -47,24 +47,24 @@ traffic_load = '30-60'
 EDCAaccessCategory = 'VI'
 
 # Scenario-related
-AP_number = 4
-STA_number = 16
-grid_value = 40
-scenario_type = 'grid'
+AP_NUMBER = 4
+STA_NUMBER = 16
+GRID_VALUE = 40
+SCENARIO_TYPE = 'grid'
 sim = '20metros-16STAs'
-walls = np.array([[0, grid_value, grid_value/2, grid_value/2], 
-                  [grid_value/2, grid_value/2, 0, grid_value]])
+walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
+                  [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
 
 # System-related parameters
-TXOP_duration = 5E-3
-Pn_dBm = -95
-Cca = -82
+TXOP_DURATION = 5E-3
+PN_DBM = -95
+CCA = -82
 BW = 80
-Nss = 2
+NSS = 2
 L = 12E3
 
 # Channel-related parameters
-MaxTxPower, Nsc = TXpowerCalc(BW, Nss)
+MaxTxPower, NSC = TXpowerCalc(BW, NSS)
 
 # Seed for reproducibility
 rndGeneration = {
@@ -75,21 +75,21 @@ rndGeneration = {
 np.random.seed(rndGeneration[sim])
 
 # Simulation parameters for parallel processing
-iterations = 100
+ITERATIONS = 100
 
 # Pre-allocate variables
-STA_matrix_save = np.empty((STA_number, 2, iterations))        
-channelMatrix_save = np.empty((STA_number, AP_number, iterations))
-RSSI_dB_vector_to_export_save = np.empty((STA_number, AP_number, iterations))
+STA_matrix_save = np.empty((STA_NUMBER, 2, ITERATIONS))        
+channelMatrix_save = np.empty((STA_NUMBER, AP_NUMBER, ITERATIONS))
+RSSI_dB_vector_to_export_save = np.empty((STA_NUMBER, AP_NUMBER, ITERATIONS))
 
 
 # # Result arrays for throughput
-per_STA_DCF_throughput_bianchi = np.zeros((iterations, STA_number))
-DL_throughput_CSR_bianchi = np.zeros((iterations, STA_number))
+per_STA_DCF_throughput_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
+DL_throughput_CSR_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
 
 # Pre-allocate result arrays
-per_STA_DCF_throughput_bianchi = np.zeros((iterations, STA_number))
-DL_throughput_CSR_bianchi = np.zeros((iterations, STA_number))
+per_STA_DCF_throughput_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
+DL_throughput_CSR_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
 
 
 EDCAaccessCategory = 'VI' if traffic_type == 'VR' else 'BE'
@@ -99,8 +99,8 @@ EDCAaccessCategory = 'VI' if traffic_type == 'VR' else 'BE'
 max_workers = 8  # Adjust the number of workers as needed
 with ProcessPoolExecutor(max_workers=max_workers) as executor:
     for i, (STA_matrix, channelMatrix, RSSI_dB_vector_to_export) in enumerate(
-        tqdm(executor.map(simulate_iteration, range(iterations), chunksize=10), 
-             total=iterations, desc="Simulating", unit=" iteration")
+        tqdm(executor.map(simulate_iteration, range(ITERATIONS), chunksize=10), 
+             total=ITERATIONS, desc="Simulating", unit=" iteration")
     ):
         STA_matrix_save[:, :, i] = STA_matrix
         channelMatrix_save[:, :, i] = channelMatrix

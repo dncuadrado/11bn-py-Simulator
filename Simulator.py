@@ -15,18 +15,18 @@ from TrafficGenerator import TrafficGenerator, poisson_fixed_events, generate_bu
 
 
 
-def simulate_iteration(sim, traffic_type, traffic_load, iteration):
+def simulate_iterations(sim, traffic_type, traffic_load, iter):
     """
-    Simulates one iteration and returns the STAs_arrivals_matrix.
+    Simulates one iterations and returns the delay vectors for DCF, MNP, OP, and TAT.
 
     Parameters:
     sim (str): Simulation identifier.
     traffic_type (str): Type of traffic (e.g., 'Poisson', 'Bursty', 'VR').
     traffic_load (str): Load of the traffic (e.g., 'low', 'medium', 'high').
-    iteration (int): Iteration number.
-    STA_matrix_save (np.ndarray): Pre-saved STA matrix for all iterations.
-    channelMatrix_save (np.ndarray): Pre-saved channel matrix for all iterations.
-    RSSI_dB_vector_to_export_save (np.ndarray): Pre-saved RSSI vector for all iterations.
+    iter (int): Number of the current iteration.
+    STA_matrix_save (np.ndarray): Pre-saved STA matrix for all iter.
+    channelMatrix_save (np.ndarray): Pre-saved channel matrix for all iter.
+    RSSI_dB_vector_to_export_save (np.ndarray): Pre-saved RSSI vector for all iter.
 
     Returns:
     np.ndarray, np.ndarray, np.ndarray, np.ndarray: delay vector for DCF, MNP, OP, and TAT.
@@ -39,30 +39,30 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration):
 
 
     ### Deployment-dependent data
-    AP_matrix, STA_matrix = AP_STA_coordinates(AP_number, STA_number, scenario_type, grid_value)
-    # STA_matrix = STA_matrix_save[:, :, iteration]
+    AP_matrix, STA_matrix = AP_STA_coordinates(AP_NUMBER, STA_NUMBER, SCENARIO_TYPE, GRID_VALUE)
+    # STA_matrix = STA_matrix_save[:, :, iter]
 
     # Association
-    association = AP_STA_Association(AP_number, STA_number, scenario_type)
+    association = AP_STA_Association(AP_NUMBER, STA_NUMBER, SCENARIO_TYPE)
 
     # Plot deployment
-    # PlotDeployment(AP_matrix, STA_matrix, association, grid_value, walls)
+    # PlotDeployment(AP_matrix, STA_matrix, association, GRID_VALUE, walls)
 
     # Channel matrix. Uncomment if using pre-saved channel matrix.  
-    channelMatrix = channelMatrix_save[:, :, iteration]
+    channelMatrix = channelMatrix_save[:, :, iter]
 
     # RSSI vector. Uncomment if using pre-saved RSSI vector.
-    RSSI_dB_vector_to_export = RSSI_dB_vector_to_export_save[:, :, iteration]
+    RSSI_dB_vector_to_export = RSSI_dB_vector_to_export_save[:, :, iter]
 
     # Compute the channelMatrix and RSSI_dB_vector_to_export if they aren't provided as pre-saved datasets
-    # channelMatrix, RSSI_dB_vector_to_export = GetChannelMatrix(MaxTxPower, Cca, AP_matrix, STA_matrix, scenario_type, walls, checkSegmentIntersection, Getloss)
+    # channelMatrix, RSSI_dB_vector_to_export = GetChannelMatrix(MaxTxPower, CCA, AP_matrix, STA_matrix, SCENARIO_TYPE, walls, checkSegmentIntersection, Getloss)
     
     # Compute the overheads
     preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads = OverheadsCalc(EDCAaccessCategory)
 
-    CGs_STAs, TxPowerMatrix = CG_creationTPC(AP_number, STA_number, CSRoverheads, Pn_dBm, Nsc, Nss, association, channelMatrix, MaxTxPower, TXOP_duration) 
+    CGs_STAs, TxPowerMatrix = CG_creationTPC(AP_NUMBER, STA_NUMBER, CSRoverheads, PN_DBM, NSC, NSS, association, channelMatrix, MaxTxPower, TXOP_DURATION) 
     
-    per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(AP_number, STA_number, association, RSSI_dB_vector_to_export, Pn_dBm, Nsc, Nss, TXOP_duration, 
+    per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to_export, PN_DBM, NSC, NSS, TXOP_DURATION, 
                                                             DCFoverheads, EDCAaccessCategory)
     # Simulation duration
     timestamp_to_stop = 5
@@ -70,30 +70,30 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration):
     ### Traffic dataset
 
     # Load the traffic dataset. Uncomment if using pre-saved dataset.
-    h5_file_path = os.path.join(os.getcwd(), 'traffic datasets', sim, traffic_type, traffic_load, f"STAs_arrivals_matrix{iteration}.h5")
+    h5_file_path = os.path.join(os.getcwd(), 'traffic datasets', sim, traffic_type, traffic_load, f"STAs_arrivals_matrix{iter}.h5")
     # Open and load the dataset
     with h5py.File(h5_file_path, 'r') as h5file:
       STAs_arrivals_matrix = np.array([h5file[key][:] for key in h5file.keys()])
 
-    # Generate the traffic dataset for the current iteration. Comment if using pre-saved dataset.
-    # STAs_arrivals_matrix = TrafficGenerator(STA_number, validationFlag, traffic_type, traffic_load, L, per_STA_DCF_throughput_bianchi)   
+    # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
+    # STAs_arrivals_matrix = TrafficGenerator(STA_NUMBER, validationFlag, traffic_type, traffic_load, L, per_STA_DCF_throughput_bianchi)   
 
     # Set the seed
     seed = 1
 
     np.random.seed(seed)
-    simDCF = MAPCsim(AP_number, STA_number, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop, 
-            validationFlag, TXOP_duration, Pn_dBm, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
+    simDCF = MAPCsim(AP_NUMBER, STA_NUMBER, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop, 
+            validationFlag, TXOP_DURATION, PN_DBM, NSS, NSC, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
     simDCF.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simDCF.simulation_system = 'DCF'
     simDCF.accessCategory = EDCAaccessCategory
     simDCF.InitSettings()  # Initializing STAs
-    simDCF.Start()
+    simDCF.Run()
 
 
     np.random.seed(seed)
-    simMNP = MAPCsim(AP_number, STA_number, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop, 
-            validationFlag, TXOP_duration, Pn_dBm, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
+    simMNP = MAPCsim(AP_NUMBER, STA_NUMBER, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop, 
+            validationFlag, TXOP_DURATION, PN_DBM, NSS, NSC, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
     simMNP.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simMNP.simulation_system = 'CSR'
     simMNP.scheduler = 'MNP'
@@ -101,11 +101,11 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration):
     simMNP.TxPowerMatrix = TxPowerMatrix
     simMNP.accessCategory = EDCAaccessCategory
     simMNP.InitSettings()  # Initializing STAs
-    simMNP.Start()
+    simMNP.Run()
 
     np.random.seed(seed)
-    simOP = MAPCsim(AP_number, STA_number, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop, 
-            validationFlag, TXOP_duration, Pn_dBm, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
+    simOP = MAPCsim(AP_NUMBER, STA_NUMBER, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop, 
+            validationFlag, TXOP_DURATION, PN_DBM, NSS, NSC, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
     simOP.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simOP.simulation_system = 'CSR'
     simOP.scheduler = 'OP'
@@ -113,23 +113,23 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration):
     simOP.TxPowerMatrix = TxPowerMatrix
     simOP.accessCategory = EDCAaccessCategory
     simOP.InitSettings()  # Initializing STAs
-    simOP.Start()
+    simOP.Run()
 
     np.random.seed(seed)
-    simTAT = MAPCsim(AP_number, STA_number, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop, 
-            validationFlag, TXOP_duration, Pn_dBm, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
+    simTAT = MAPCsim(AP_NUMBER, STA_NUMBER, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop, 
+            validationFlag, TXOP_DURATION, PN_DBM, NSS, NSC, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
     simTAT.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simTAT.simulation_system = 'CSR'
     simTAT.scheduler = 'TAT'
     simTAT.CGs_STAs = CGs_STAs
     simTAT.TxPowerMatrix = TxPowerMatrix
     simTAT.accessCategory = EDCAaccessCategory
-    simTAT.alpha_ = 0.5
-    simTAT.beta_ = 0.5
+    simTAT.alpha = 0.5
+    simTAT.beta = 0.5
     simTAT.InitSettings()  # Initializing STAs
-    simTAT.Start()
+    simTAT.Run()
     
-    print(f'Iteration: {iteration}')
+    print(f'iterations: {ITERATIONS}')
     print(f'DCF 50th {np.percentile(simDCF.delayvector,50)*1000}')
     print(f'DCF 99th {np.percentile(simDCF.delayvector,99)*1000}')
     print(f'MNP 50th {np.percentile(simMNP.delayvector,50)*1000}')
@@ -142,15 +142,15 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration):
 
     return simDCF.delayvector, simMNP.delayvector, simOP.delayvector, simTAT.delayvector
 
-def save_to_h5(output_dir, sim, traffic_type, traffic_load, iteration, DCFdelay, MNPdelay, OPdelay, TATdelay):
+def save_to_h5(output_dir, sim, traffic_type, traffic_load, ITERATIONS, DCFdelay, MNPdelay, OPdelay, TATdelay):
     """
     Saves the the delay vectors into delay.h5 files in a structured directory.
     """
     # Create the directory structure
-    output_path = os.path.join(output_dir, sim, traffic_type, traffic_load, f"Deployment{iteration}")
+    output_path = os.path.join(output_dir, sim, traffic_type, traffic_load, f"Deployment{ITERATIONS}")
     os.makedirs(output_path, exist_ok=True)
 
-    # Save the current iteration to its own HDF5 file
+    # Save the current ITERATIONS to its own HDF5 file
     h5_file_path = os.path.join(output_path, f"delay.h5")
     # Save data to HDF5 file
     with h5py.File(h5_file_path, 'w') as f:
@@ -167,40 +167,41 @@ start_time = time.time()
 ###### Input parameters
 validationFlag = 'no'
 
-traffic_types = ['Poisson', 'Bursty', 'VR']
-traffic_loads = {
-    'Poisson': ['low', 'medium', 'high'],
-    'Bursty': ['low', 'medium', 'high'],
-    'VR': ['30-60', '30-90', '30-120']
-}
-
-# traffic_types = ['VR']
+# traffic_types = ['Poisson', 'Bursty', 'VR']
 # traffic_loads = {
-#     'VR': ['30-120']
+#     'Poisson': ['low', 'medium', 'high'],
+#     'Bursty': ['low', 'medium', 'high'],
+#     'VR': ['30-60', '30-90', '30-120']
 # }
+
+traffic_types = ['Bursty']
+traffic_loads = {
+    'Bursty': ['high']
+}
 
 
 # Scenario-related
-AP_number = 4
-STA_number = 16
-grid_value = 60
-scenario_type = 'grid'
+AP_NUMBER = 4
+STA_NUMBER = 16
+GRID_VALUE = 60
+SCENARIO_TYPE = 'grid'
+
 sim = '30metros-16STAs'
-walls = np.array([[0, grid_value, grid_value/2, grid_value/2], 
-                  [grid_value/2, grid_value/2, 0, grid_value]])
+walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
+                  [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
 
 # System-related parameters
-TXOP_duration = 5E-3
-Pn_dBm = -95
-Cca = -82
+TXOP_DURATION = 5E-3
+PN_DBM = -95
+CCA = -82
 BW = 80
-Nss = 2
+NSS = 2
 L = 12E3
 
-iterations = 100
+ITERATIONS = 100
 
 ### Channel-related parameters
-MaxTxPower, Nsc = TXpowerCalc(BW, Nss)
+MaxTxPower, NSC = TXpowerCalc(BW, NSS)
 
 # ### Load deployment data
 h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
@@ -219,19 +220,19 @@ with ProcessPoolExecutor(max_workers=max_workers) as executor:
         for traffic_load in traffic_loads[traffic_type]:
             futures = [
                 executor.submit(
-                    simulate_iteration, sim, traffic_type, traffic_load, i
+                    simulate_iterations, sim, traffic_type, traffic_load, i
                 )
-                for i in range(iterations)
+                for i in range(ITERATIONS)
             ]
-            for i, future in enumerate(tqdm(futures, desc=f"{traffic_type} {traffic_load}", unit=" iteration")):
+            for i, future in enumerate(tqdm(futures, desc=f"{traffic_type} {traffic_load}", unit=" iterations")):
                 try:
                     DCFdelay, MNPdelay, OPdelay, TATdelay = future.result()
 
-                    ### Uncoment to save the delay vectors into HDF5 files for each iteration, traffic type, and traffic load in a structured directory
+                    ### Uncoment to save the delay vectors into HDF5 files for each iterations, traffic type, and traffic load in a structured directory
                     # save_to_h5(output_dir, sim, traffic_type, traffic_load, i, DCFdelay, MNPdelay, OPdelay, TATdelay)
                 
                 except Exception as e:
-                    print(f"Error in iteration {i} for {traffic_type} {traffic_load}: {e}")
+                    print(f"Error in iterations {i} for {traffic_type} {traffic_load}: {e}")
 
 # End Timer and print elapsed time
 end_time = time.time()
