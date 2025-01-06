@@ -7,7 +7,7 @@ class MAPCsim:
     """
 
     def __init__(self, n_APs, n_STAs, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop,
-                 simulation_system, validationFlag, TXOP_duration, Pn_dBm, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR,
+                 validationFlag, TXOP_duration, Pn_dBm, Nss, Nsc, preTX_overheadsDCF, preTX_overheadsCSR,
                  DCFoverheads, CSRoverheads):
         # System-related
         self._TXOP_duration = TXOP_duration                              # Duration of a TXOP
@@ -25,7 +25,7 @@ class MAPCsim:
 
         # Traffic-related
         self.traffic_type = traffic_type                                  # Traffic type
-        self.accessCategory = 'BE'                                        # Access category                 
+        self.accessCategory : str                                         # Access category                 
         self.timestamp_to_stop = timestamp_to_stop                        # Timestamp to stop the simulation
         
         self.STA_queue_timeline = []                                      # Stores the arrival time of the packets of all STAs
@@ -38,32 +38,36 @@ class MAPCsim:
         self._lastPosPosition = np.zeros((self.n_STAs,), dtype=int)       # Stores the position of the packet reffered to lastPosTimestamp
 
         # Simulation-related
-        self.simulation_system = simulation_system                        # Simulation system -> DCF or CSR
+        self.simulation_system : str                                      # Simulation system -> DCF or CSR
         self.validationFlag = validationFlag                              # Validation flag -> 'yes' or 'no'
 
         # Backoff-related
         self._APs_packet_indicator = np.zeros((self.n_APs,), dtype=bool)  # Vector indicating whether each AP has packets to transmit
         self._backoffValues = np.zeros((self.n_APs,), dtype=int)          # Backoff values for each AP
         self._backoffStage = np.zeros((self.n_APs,), dtype=int)           # Backoff stage for each AP
-        self._TXOPwinNumber = np.zeros((self.n_APs,), dtype=int)          # Number of TXOP wins for each AP
-        self._TXOPcollision = np.zeros((self.n_APs,), dtype=int)          # Number of TXOP collisions for each AP
+        self._CWmin : int                                                 # Minimum contention window
+        self._maxBackoffStage : int                                       # Maximum backoff stage
+        self._AIFS : float                                                # Arbitration Inter-Frame Space
+        
 
         # TXOP-related
+        self._TXOPwinNumber = np.zeros((self.n_APs,), dtype=int)          # Number of TXOP wins for each AP
+        self._TXOPcollision = np.zeros((self.n_APs,), dtype=int)          # Number of TXOP collisions for each AP
         self.preTX_overheadsDCF = preTX_overheadsDCF                      # Amount of time per TXOP before the data transmission begins using DCF 
         self.preTX_overheadsCSR = preTX_overheadsCSR                      # Amount of time per TXOP before the data transmission begins using CSR
         self.DCFoverheads = DCFoverheads                                  # Total amount of DCF overheads 
         self.CSRoverheads = CSRoverheads                                  # Total amount of CSR overheads
 
         # CSR-related
-        self.CGs_STAs = []
-        self.TxPowerMatrix = []
-        self.scheduler = 'MNP'              # scheduling: - Number of packets: 'MNP' 
-                                            #             - Oldest packet: 'OP'
-                                            #             - Random selection: 'Random'
-                                            #             - TAT selection: 'TAT'
-                                            #             - Hybrid selection: 'Hybrid'
-        self.alpha_ = 0.5
-        self.beta_ = 0.5
+        self.CGs_STAs : np.ndarray                                         # C-SR compatible groups of STAs
+        self.TxPowerMatrix : np.ndarray                                    # Transmission power matrix
+        self.scheduler : str                            # scheduling: - Number of packets: 'MNP' 
+                                                        #             - Oldest packet: 'OP'
+                                                        #             - Random selection: 'Random'
+                                                        #             - TAT selection: 'TAT'
+                                                        #             - Hybrid selection: 'Hybrid'
+        self.alpha_ = 0.5                                                  # Alpha value for TAT. Default value is 0.5
+        self.beta_ = 0.5                                                   # Beta value for TAT. Default value is 0.5
         
         # Results
         self.STAselectionCounter = np.zeros((self.n_STAs,), dtype=int)    # Counter for the number of times each STA is selected
