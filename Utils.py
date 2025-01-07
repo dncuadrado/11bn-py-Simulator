@@ -427,7 +427,7 @@ def MCS_cal_PER_001(SINR_db):
 ####################################################################################################################
 
 # Function to calculate the optimal power allocation
-def power_allocation(N, noise_power, H, P_max, NSC, NSS, method):
+def power_allocation(N, noise_power, H, P_max, NSC, NSS, TPC_method):
     """
     Optimizes power allocation using the specified method to maximize proportional fairness.
     Returns: P_opt
@@ -611,16 +611,16 @@ def power_allocation(N, noise_power, H, P_max, NSC, NSS, method):
                             integrality=None, vectorized=False)
         return result.x  # Optimized power allocation
     
-    if method == None:
+    if TPC_method == None:
         P_opt = P = np.full(N, P_max)
-    elif method == 'PSO':   # Particle Swarm Optimization
+    elif TPC_method == 'PSO':   # Particle Swarm Optimization
         P_opt = power_allocation_particleswarm(N, noise_power, H, P_max, NSC, NSS)
-    elif method == 'IPOPT': # Several methods inside. CUrrently selected: SQP
+    elif TPC_method == 'IPOPT': # Several methods inside. CUrrently selected: SQP
         P_opt = power_allocation_ipyopt(N, noise_power, H, P_max, NSC, NSS)
-    elif method == 'DE':    # DIfferential Evolution
+    elif TPC_method == 'DE':    # DIfferential Evolution
         P_opt = power_allocation_differential_evolution(N, noise_power, H, P_max, NSC, NSS)
     else:
-        raise ValueError(f"Unsupported optimization method: {method}")
+        raise ValueError(f"Unsupported optimization method: {TPC_method}")
 
     return P_opt 
 ####################################################################################################################
@@ -696,46 +696,50 @@ def elapsed_time_tx(NSC, N_bps, Rc, NSS, tx_Packets):
     return time_tx
 ####################################################################################################################
 
+def generate_combinations(AP_NUMBER, STA_NUMBER, association):
+    """
+    Generates all possible combinations of AP-STAs for a given association.
+    """
+    # Maximum number of APs per group. CG_size can reduce the number of transmitters per combination. 
+    CG_size = AP_NUMBER 
+
+    # Step 1: Generate all possible combinations of STAs for each AP, including np.nan for NaN replacement
+    u_with_placeholders = [np.array([np.nan] + stas, dtype=float) for stas in association]
+
+    # Step 2: Generate all possible combinations of AP-STAs using itertools.product
+    all_combinations = np.array(list(product(*u_with_placeholders)), dtype=float)
+
+    # Step 3: Filter out rows where all elements are the placeholder (np.nan)
+    valid_combinations = all_combinations[~np.all(np.isnan(all_combinations), axis=1)]
+
+    # Step 4: Apply filtering based on CG_size
+    # Only keep rows where the number of non-placeholder elements is <= CG_size
+    idx_row = np.sum(~np.isnan(valid_combinations), axis=1)
+    valid_combinations = valid_combinations[idx_row <= CG_size]
+
+    # Step 5: Remove duplicate rows
+    valid_combinations = np.unique(valid_combinations, axis=0)
+
+    # Step 6: Sort rows by the number of placeholder elements (descending) and smallest non-placeholder integers
+    valid_combinations = valid_combinations[
+        np.lexsort((
+            np.min(np.where(~np.isnan(valid_combinations), valid_combinations, np.inf), axis=1),
+            -np.sum(np.isnan(valid_combinations), axis=1)
+        ))
+    ]
+
+    return valid_combinations
+####################################################################################################################
+
 # Function to compute the C-SR groups and the corresponding power allocation
-def CG_creationTPC(AP_NUMBER, STA_NUMBER, CSRoverheads, PN_DBM, NSC, NSS, 
-                   association, channelMatrix, MaxTxPower, TXOP_DURATION):
+def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channelMatrix, MaxTxPower, CG_filter, TPC_method): 
+                   
     # Initialization
-    CG_size = AP_NUMBER  # Maximum number of APs per group
     noise_power = 10**(PN_DBM / 10)
     MaxTxPower = 10**(MaxTxPower / 10)
 
-    
-    def generate_combinations(AP_NUMBER, STA_NUMBER, association, CG_size):
-
-        # Step 1: Generate all possible combinations of STAs for each AP, including np.nan for NaN replacement
-        u_with_placeholders = [np.array([np.nan] + stas, dtype=float) for stas in association]
-
-        # Step 2: Generate all possible combinations of AP-STAs using itertools.product
-        all_combinations = np.array(list(product(*u_with_placeholders)), dtype=float)
-
-        # Step 3: Filter out rows where all elements are the placeholder (np.nan)
-        valid_combinations = all_combinations[~np.all(np.isnan(all_combinations), axis=1)]
-
-        # Step 4: Apply filtering based on CG_size
-        # Only keep rows where the number of non-placeholder elements is <= CG_size
-        idx_row = np.sum(~np.isnan(valid_combinations), axis=1)
-        valid_combinations = valid_combinations[idx_row <= CG_size]
-
-        # Step 5: Remove duplicate rows
-        valid_combinations = np.unique(valid_combinations, axis=0)
-
-        # Step 6: Sort rows by the number of placeholder elements (descending) and smallest non-placeholder integers
-        valid_combinations = valid_combinations[
-            np.lexsort((
-                np.min(np.where(~np.isnan(valid_combinations), valid_combinations, np.inf), axis=1),
-                -np.sum(np.isnan(valid_combinations), axis=1)
-            ))
-        ]
-
-        return valid_combinations
-
-    # Function to generate all possible combinations of AP-STAs for a given association and CG_size
-    map_matrix = generate_combinations(AP_NUMBER, STA_NUMBER, association, CG_size)
+    # Function to generate all possible combinations of AP-STAs for a given association
+    map_matrix = generate_combinations(AP_NUMBER, STA_NUMBER, association)
 
     # Create TxPowerMatrixTemp with the shape of map_matrix
     TxPowerMatrixTemp = np.full(map_matrix.shape, np.nan)
@@ -760,9 +764,9 @@ def CG_creationTPC(AP_NUMBER, STA_NUMBER, CSRoverheads, PN_DBM, NSC, NSS,
             P = np.full(len(STAs), MaxTxPower)  # Equivalent to MaxTxPower * ones(length(STAs), 1)
         else:  # Compute the subset of power that maximizes the proportional fair transmission
             # TPC (Power allocation)
-            method = 'PSO'  # Optimization method: None, 'PSO', 'IPOPT', 'DE'
+            
             # Solving the Opt problem with the selected method
-            P = power_allocation(len(STAs), noise_power, H, MaxTxPower, NSC, NSS, method)
+            P = power_allocation(len(STAs), noise_power, H, MaxTxPower, NSC, NSS, TPC_method)
 
             # Store the power vector in TxPowerMatrixTemp
             TxPowerMatrixTemp[i, APs] = P  
@@ -778,14 +782,22 @@ def CG_creationTPC(AP_NUMBER, STA_NUMBER, CSRoverheads, PN_DBM, NSC, NSS,
             else:
                 datarate[i, APs[k]] = NSC * N_bps * Rc * NSS / (12.8e-6 + 0.8e-6) # Datarate in bps
             
-            # if the datarate using CSR is lower than the datarate without CSR, discard the combination
-            if len(STAs) * datarate[i, APs[k]] >= datarate[STAs[k], APs[k]]:
-                continue
+            # To filter out combinations using a specific criterium 
+            if CG_filter == 'on': 
+                # if the datarate using CSR is lower than the datarate without CSR, discard the combination
+                if len(STAs) * datarate[i, APs[k]] >= datarate[STAs[k], APs[k]]:
+                    continue
+                else:
+                    # Discarding the rest of combs where this STAs appear
+                    Discardlist[np.sum(np.isin(map_matrix,STAs), axis=1) >= len(STAs)] = False
+                    break
+            elif CG_filter == 'off':  # No filtering. Only discards combinations with SINR under the threshold
+                if datarate[i, APs[k]] == 0:
+                    Discardlist[i] = False
+                    break
             else:
-                # Discarding the rest of combs where this STAs appear
-                Discardlist[np.sum(np.isin(map_matrix,STAs), axis=1) >= len(STAs)] = False
-                break
-        else:
+                raise ValueError(f'Invalid CG_filter value: {CG_filter}. Choose "on" or "off"')
+        if Discardlist[i] == True:
             comb_ok[i] = True
 
     TxPowerMatrix = TxPowerMatrixTemp[comb_ok]

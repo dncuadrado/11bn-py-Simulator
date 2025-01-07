@@ -28,8 +28,10 @@ def simulate_iteration(i):
     preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads = OverheadsCalc(EDCAaccessCategory)
 
     # Compute Throughput DCF and CSR
-    CGs_STAs, TxPowerMatrix = CG_creationTPC(AP_NUMBER, STA_NUMBER, CSRoverheads, PN_DBM, NSC, NSS, association, channelMatrix, MaxTxPower, TXOP_DURATION) 
-                                              
+    CGs_STAs, TxPowerMatrix = CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, 
+                                             association, channelMatrix, MaxTxPower, 
+                                             CG_filter='on', TPC_method='PSO')    # TPC Optimization method: None, 'PSO', 'IPOPT', 'DE'
+    
     per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to_export, PN_DBM, NSC, NSS, TXOP_DURATION, 
                                                             DCFoverheads, EDCAaccessCategory)
 

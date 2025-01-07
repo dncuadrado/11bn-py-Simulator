@@ -60,7 +60,10 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
     # Compute the overheads
     preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads = OverheadsCalc(EDCAaccessCategory)
 
-    CGs_STAs, TxPowerMatrix = CG_creationTPC(AP_NUMBER, STA_NUMBER, CSRoverheads, PN_DBM, NSC, NSS, association, channelMatrix, MaxTxPower, TXOP_DURATION) 
+    CGs_STAs, TxPowerMatrix = CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, 
+                                             association, channelMatrix, MaxTxPower, 
+                                             CG_filter='on', TPC_method='PSO')    # TPC Optimization method: None, 'PSO', 'IPOPT', 'DE'
+                                              
     
     per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to_export, PN_DBM, NSC, NSS, TXOP_DURATION, 
                                                             DCFoverheads, EDCAaccessCategory)
@@ -129,7 +132,7 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
     simTAT.InitSettings()  # Initializing STAs
     simTAT.Run()
     
-    print(f'iterations: {ITERATIONS}')
+    print(f'Iteration: {iter}')
     print(f'DCF 50th {np.percentile(simDCF.delayvector,50)*1000}')
     print(f'DCF 99th {np.percentile(simDCF.delayvector,99)*1000}')
     print(f'MNP 50th {np.percentile(simMNP.delayvector,50)*1000}')
@@ -182,11 +185,11 @@ traffic_loads = {
 
 # Scenario-related
 AP_NUMBER = 4
-STA_NUMBER = 16
-GRID_VALUE = 60
+STA_NUMBER = 8
+GRID_VALUE = 40
 SCENARIO_TYPE = 'grid'
 
-sim = '30metros-16STAs'
+sim = '20metros-8STAs'
 walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
                   [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
 
