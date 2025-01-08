@@ -13,6 +13,16 @@ from Utils import *
 from MAPCsim import *
 from TrafficGenerator import TrafficGenerator, poisson_fixed_events, generate_burst_traffic, generate_vr_traffic
 
+from Agent import *
+from CustomEnv import *
+
+# RL Model (e.g., PPO)
+from stable_baselines3 import PPO
+from stable_baselines3.common.env_checker import check_env
+from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.vec_env import SubprocVecEnv
+
+
 
 
 def simulate_iterations(sim, traffic_type, traffic_load, iter):
@@ -67,26 +77,96 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
     
     per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to_export, PN_DBM, NSC, NSS, TXOP_DURATION, 
                                                             DCFoverheads, EDCAaccessCategory)
-    # Simulation duration
-    timestamp_to_stop = 5
     
-    ### Traffic dataset
 
-    # Load the traffic dataset. Uncomment if using pre-saved dataset.
-    h5_file_path = os.path.join(os.getcwd(), 'traffic datasets', sim, traffic_type, traffic_load, f"STAs_arrivals_matrix{iter}.h5")
-    # Open and load the dataset
-    with h5py.File(h5_file_path, 'r') as h5file:
-      STAs_arrivals_matrix = np.array([h5file[key][:] for key in h5file.keys()])
-
-    # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
-    # STAs_arrivals_matrix = TrafficGenerator(STA_NUMBER, validationFlag, traffic_type, traffic_load, L, per_STA_DCF_throughput_bianchi)   
+    # Simulation duration
+    timestamp_to_stop = 0.1  # seconds
 
     # Set the seed
     seed = 1
 
+    # Simulation Configuration
+    sim_config = {
+        'AP_NUMBER': AP_NUMBER,
+        'STA_NUMBER': STA_NUMBER,
+        'association': association,
+        'MaxTxPower': MaxTxPower,
+        'channelMatrix': channelMatrix,
+        'traffic_type': traffic_type,
+        'validationFlag': 'no',
+        'TXOP_DURATION': TXOP_DURATION,
+        'PN_DBM': PN_DBM,
+        'NSS': NSS,
+        'NSC': NSC,
+        'preTX_overheadsDCF': preTX_overheadsDCF,
+        'preTX_overheadsCSR': preTX_overheadsCSR,
+        'DCFoverheads': DCFoverheads,
+        'CSRoverheads': CSRoverheads,
+        'timestamp_to_stop': timestamp_to_stop,
+        'CGs_STAs': CGs_STAs,
+        'TxPowerMatrix': TxPowerMatrix
+    }
+    
+    # ### Traffic dataset
+    # # Load the traffic dataset. Uncomment if using pre-saved dataset.
+    # h5_file_path = os.path.join(os.getcwd(), 'traffic datasets', sim, traffic_type, traffic_load, f"STAs_arrivals_matrix{iter}.h5")
+    # # Open and load the dataset
+    # with h5py.File(h5_file_path, 'r') as h5file:
+    #   STAs_arrivals_matrix = np.array([h5file[key][:] for key in h5file.keys()])
+
+    # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
+    STAs_arrivals_matrix = TrafficGenerator(STA_NUMBER, validationFlag, traffic_type, traffic_load, L, per_STA_DCF_throughput_bianchi)   
+
+    # RL agent - training
+    # Create a Gym-compatible environment
+    def create_env():
+        np.random.seed(seed)
+        simulator = MAPCsim(sim_config)  # new "MAPC simulator" object
+        simulator.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
+        simulator.simulation_system = 'CSR'
+        # simulator.scheduler = 'MNP'
+        simulator.CGs_STAs = CGs_STAs
+        simulator.TxPowerMatrix = TxPowerMatrix
+        simulator.accessCategory = EDCAaccessCategory
+        return CustomEnv(sim_config, simulator)
+
+    env = DummyVecEnv([create_env])  # Wrap the environment
+    
+    # Check the environment. Use the basic custom environment from gym: 
+    # env = CustomEnv(sim_config, simulator)
+    # check_env(env)
+
+    # # Wrap your environment in a list of lambdas for parallel environments
+    # env = SubprocVecEnv([lambda: create_env() for _ in range(1)])  # n_envs=1
+
+    # Initialize PPO agent
+    model = PPO("MultiInputPolicy", env, verbose=1)
+
+    num_episodes = 10  # Number of episodes to train
+    total_timesteps_per_episode = 5000  # Number of timesteps per episode as max, 
+                                        # the actual number may be less and it depends on the truncated flag, which is True when: 
+                                        # truncated = bool(self.simulator.sim_timeline >= self.simulator.timestamp_to_stop)
+
+    # Training loop with custom traffic and episodes
+    for episode in range(num_episodes):
+        # Generate new traffic for this episode
+        STAs_arrivals_matrix = TrafficGenerator(
+            STA_NUMBER, validationFlag, traffic_type, traffic_load, L, per_STA_DCF_throughput_bianchi
+        )
+        
+        # Set traffic for the simulator and environment
+        simulator = env.get_attr("simulator")[0]  # Access the simulator from the vectorized env
+        simulator.STA_queue_timeline = STAs_arrivals_matrix
+
+        # Train for the specified timesteps
+        model.learn(total_timesteps=total_timesteps_per_episode)
+
+        # Reset the environment for the next episode
+        env.reset() 
+
+
     np.random.seed(seed)
-    simDCF = MAPCsim(AP_NUMBER, STA_NUMBER, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop, 
-            validationFlag, TXOP_DURATION, PN_DBM, NSS, NSC, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
+    simDCF = MAPCsim(sim_config)  # new "MAPC simulator" object
     simDCF.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simDCF.simulation_system = 'DCF'
     simDCF.accessCategory = EDCAaccessCategory
@@ -95,8 +175,7 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
 
 
     np.random.seed(seed)
-    simMNP = MAPCsim(AP_NUMBER, STA_NUMBER, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop, 
-            validationFlag, TXOP_DURATION, PN_DBM, NSS, NSC, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
+    simMNP = MAPCsim(sim_config)  # new "MAPC simulator" object
     simMNP.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simMNP.simulation_system = 'CSR'
     simMNP.scheduler = 'MNP'
@@ -107,8 +186,7 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
     simMNP.Run()
 
     np.random.seed(seed)
-    simOP = MAPCsim(AP_NUMBER, STA_NUMBER, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop, 
-            validationFlag, TXOP_DURATION, PN_DBM, NSS, NSC, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
+    simOP = MAPCsim(sim_config)  # new "MAPC simulator" object
     simOP.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simOP.simulation_system = 'CSR'
     simOP.scheduler = 'OP'
@@ -119,8 +197,7 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
     simOP.Run()
 
     np.random.seed(seed)
-    simTAT = MAPCsim(AP_NUMBER, STA_NUMBER, association, MaxTxPower, channelMatrix, traffic_type, timestamp_to_stop, 
-            validationFlag, TXOP_DURATION, PN_DBM, NSS, NSC, preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads)  # new "Traffic" object
+    simTAT = MAPCsim(sim_config)  # new "MAPC simulator" object
     simTAT.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simTAT.simulation_system = 'CSR'
     simTAT.scheduler = 'TAT'
@@ -131,7 +208,7 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
     simTAT.beta = 0.5
     simTAT.InitSettings()  # Initializing STAs
     simTAT.Run()
-    
+
     print(f'Iteration: {iter}')
     print(f'DCF 50th {np.percentile(simDCF.delayvector,50)*1000}')
     print(f'DCF 99th {np.percentile(simDCF.delayvector,99)*1000}')
@@ -142,6 +219,7 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
     print(f'TAT 50th {np.percentile(simTAT.delayvector,50)*1000}')
     print(f'TAT 99th {np.percentile(simTAT.delayvector,99)*1000}')
     print('-----------------------------------------')
+
 
     return simDCF.delayvector, simMNP.delayvector, simOP.delayvector, simTAT.delayvector
 
@@ -205,6 +283,7 @@ ITERATIONS = 100
 
 ### Channel-related parameters
 MaxTxPower, NSC = TXpowerCalc(BW, NSS)
+
 
 # ### Load deployment data
 h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
