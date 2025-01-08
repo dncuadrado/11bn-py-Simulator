@@ -13,7 +13,6 @@ from Utils import *
 from MAPCsim import *
 from TrafficGenerator import TrafficGenerator, poisson_fixed_events, generate_burst_traffic, generate_vr_traffic
 
-from Agent import *
 from CustomEnv import *
 
 # RL Model (e.g., PPO)
