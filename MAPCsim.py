@@ -38,7 +38,7 @@ class MAPCsim:
 
         # Simulation-related
         self.simulation_system : str                                      # Simulation system -> DCF or CSR
-        self.validationFlag = sim_config['validationFlag']                              # Validation flag -> 'yes' or 'no'
+        self.validation_flag = sim_config['validation_flag']                              # Validation flag -> 'yes' or 'no'
 
         # Backoff-related
         self.TXOPwinner : int                                              # Winner of the TXOP
@@ -185,7 +185,7 @@ class MAPCsim:
             # APs = agent_decision[1]
         else:
             if self.simulation_system == 'DCF':
-                if self.validationFlag == 'yes':
+                if self.validation_flag == 'yes':
                     # TODO: Check!!!!!!!
                     # Round Robin scheduling for validation
                     if sum(self._firstPosPosition) == self.STA_NUMBER:
@@ -245,7 +245,7 @@ class MAPCsim:
                         else:
                             ScoreTAT.append(delta_nt + self.beta * (Delta_nt - self.alpha * delta_nt))
 
-                if self.validationFlag == 'yes':
+                if self.validation_flag == 'yes':
                     if self.rrobin_CSR_group_selector == 0:
                         self.rrobin_CSR_group_selector = np.zeros(len(self.CGs_STAs))
                         self.rrobin_CSR_group_selector[0] = 1
@@ -333,7 +333,7 @@ class MAPCsim:
             # packets finally transmitted
             tx_vector_pos = tx_vector_pos[:int(tx_Packets[k])]
 
-            if self.validationFlag == 'yes':
+            if self.validation_flag == 'yes':
                 temp_elapsed_time[k] = data_tx_time
             else:
                 # received packets
@@ -454,20 +454,24 @@ class MAPCsim:
 
     def run_step(self, agent_decision=None):
         """Run a single step of the simulation, optionally with external intervention."""
-
-        # Scheduling
-        STA_rx, APs = self.SchedulingV1(agent_decision)
         
-        # Pre-TX overheads and data transmission time calculation
-        if self.simulation_system == "DCF":
-            self.sim_timeline += self.preTX_overheadsDCF
-            data_tx_time = self._TXOP_DURATION - self.DCFoverheads
-        else:
-            self.sim_timeline += self.preTX_overheadsCSR
-            data_tx_time = self._TXOP_DURATION - self.CSRoverheads
+        
+        # Verify whether agent_decision is None (non-agent decision) or is not empty (agent decision with valid decision) 
+        if agent_decision is None or (len(agent_decision[0]) > 0):
+            # Scheduling
+            STA_rx, APs = self.SchedulingV1(agent_decision)
+            
+            # Pre-TX overheads and data transmission time calculation
+            if self.simulation_system == "DCF":
+                self.sim_timeline += self.preTX_overheadsDCF
+                data_tx_time = self._TXOP_DURATION - self.DCFoverheads
+            else:
+                self.sim_timeline += self.preTX_overheadsCSR
+                data_tx_time = self._TXOP_DURATION - self.CSRoverheads
 
-        elapsed_time = self.TXtimeCalc(STA_rx, APs, data_tx_time) # Transmission time calculation
-        self.sim_timeline += elapsed_time + 16e-6 + 100e-6 + self._AIFS + 9e-6 # elapsed time + SIFS + ACK + AIFS + Te
+            elapsed_time = self.TXtimeCalc(STA_rx, APs, data_tx_time) # Transmission time calculation
+            self.sim_timeline += elapsed_time + 16e-6 + 100e-6 + self._AIFS + 9e-6 # elapsed time + SIFS + ACK + AIFS + Te
+
 
         return 
         
