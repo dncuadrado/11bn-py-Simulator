@@ -24,16 +24,19 @@ class CustomEnv(gym.Env):
             "delays": spaces.Box(low=0, high=1000, shape=(sim_config['STA_NUMBER'],), dtype=float)
         })
 
+        self.forward_flag = bool(True)
 
     def step(self, action):
         """
-        Executes the action in the simulator and returns:
+        Executes one time step in the simulator and returns:
         - next_state: The new state of the environment.
         - reward: The reward received for the action.
         - done: Whether the episode has ended.
         """
-        # Execute one time step within the environment
-        self.simulator.sim_forward()
+        
+        if self.forward_flag: # False: the last action had no STAs to serve. Nothing happened, no need to forward the simulation now
+            self.simulator.sim_forward()
+
         agent_decision = self.get_action(action)
 
         self.simulator.run_step(agent_decision)
@@ -48,7 +51,8 @@ class CustomEnv(gym.Env):
         truncated = bool(self.simulator.sim_timeline >= self.simulator.timestamp_to_stop)
 
         # Get the reward
-        reward = self.get_reward() if terminated else -np.inf
+        reward = self.get_reward()
+  
 
         # Optionally we can pass additional info, we are not using that for now
         info = {}
@@ -83,6 +87,17 @@ class CustomEnv(gym.Env):
         STA_rx = [sta for sta in uni if self.simulator._firstPosTimestamp[sta] <= self.simulator.sim_timeline]
         APs = [next((idx for idx, assoc in enumerate(self.simulator._association) if sta in assoc), -1) for sta in STA_rx]
 
+        # # Check if there are STAs in the group that have packets to transmit
+        # if not STA_rx:
+        #     print(f"Warning: No STAs in group of STAs: {uni} ----have packets to transmit at timeline {self.simulator.sim_timeline}.")
+
+        # setting the forward flag to indicate that the current action has STAs to serve
+        if STA_rx:
+            self.forward_flag = True
+        else:
+            self.forward_flag = False
+
+        # Agent decision to be passed to the simulator
         agent_decision = [STA_rx, APs]
 
         return agent_decision
@@ -108,9 +123,15 @@ class CustomEnv(gym.Env):
             reward (float): The reward value
         """
 
-        self.simulator.TrafficAnalysis()
-        reward = np.min(-np.percentile(self.simulator.delayvector, 99))
-
+        # self.simulator.TrafficAnalysis()
+        # reward = np.min(-np.percentile(self.simulator.delayvector, 99))
+        
+        # Delay-based reward. Considering the worst delay of the hol packets among all STAs
+        if self.forward_flag:
+            reward = -(self.simulator.sim_timeline - np.min(self.simulator._firstPosTimestamp))
+        else:
+            reward = -100000 
+        
         return reward
 
 
