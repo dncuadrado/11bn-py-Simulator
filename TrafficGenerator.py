@@ -7,12 +7,10 @@ from tqdm import tqdm
 from Utils import *
 
 def TrafficGenerator(STA_NUMBER, validation_flag, traffic_type, traffic_load, L, 
-                     per_STA_DCF_throughput_bianchi):
+                     per_STA_DCF_throughput_bianchi, EVENT_NUMBER):
     """
     Generates a list of arrival times for each STA based on the specified traffic model.
     """
-    # Number of packets transmitted during the simulation
-    EVENT_NUMBER = 150000  
 
     # Traffic load configuration
     traffic_loads = {'low': 0.3, 'medium': 0.6, 'high': 0.9}
@@ -179,8 +177,10 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration, STA_matrix_sa
     )
 
     # Generate traffic for the current iteration
-    STAs_arrivals_matrix = TrafficGenerator(STA_NUMBER, validation_flag, traffic_type, traffic_load, L, 
-                                            per_STA_DCF_throughput_bianchi)
+    STAs_arrivals_matrix = TrafficGenerator(
+            STA_NUMBER, validation_flag, traffic_type, traffic_load, L, per_STA_DCF_throughput_bianchi, 
+            EVENT_NUMBER = 150000
+        )
     return STAs_arrivals_matrix
 
 # main function
