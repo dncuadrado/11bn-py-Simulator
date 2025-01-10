@@ -35,7 +35,7 @@ def simulate_iteration(i):
     per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to_export, PN_DBM, NSC, NSS, TXOP_DURATION, 
                                                             DCFoverheads, EDCAaccessCategory)
 
-    DL_throughput_CSR_bianchi = Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, CGs_STAs, TxPowerMatrix, channelMatrix, PN_DBM, NSC, NSS, TXOP_DURATION,
+    DL_throughput_CSR_bianchi = Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, association, CGs_STAs, TxPowerMatrix, channelMatrix, PN_DBM, NSC, NSS, TXOP_DURATION,
                                                        CSRoverheads, EDCAaccessCategory)
                                                   
     return per_STA_DCF_throughput_bianchi, DL_throughput_CSR_bianchi
@@ -48,11 +48,11 @@ EDCAaccessCategory = 'VI'
 
 # Scenario-related
 AP_NUMBER = 4
-STA_NUMBER = 8
-GRID_VALUE = 40
+STA_NUMBER = 16
+GRID_VALUE = 60
 SCENARIO_TYPE = 'grid'
 
-sim = '20metros-8STAs'
+sim = '30metros-16STAs'
 walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
                   [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
 
