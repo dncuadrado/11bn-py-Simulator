@@ -1,5 +1,6 @@
 import numpy as np
-from Utils import MCS_cal_PER_001, tx_packets, elapsed_time_tx
+from Utils import MCS_cal_PER_001, tx_packets, elapsed_time_tx, get_association
+import copy
 
 class MAPCsim:
     """
@@ -33,8 +34,8 @@ class MAPCsim:
         
         self._firstPosTimestamp : np.ndarray                                # Stores the timestamp of the first non-transmitted packet of each STA
         self._firstPosPosition : np.ndarray                                 # Stores the position of the first non-transmitted packet of each STA
-        self._lastPosTimestamp : np.ndarray                                 # Stores the max timestamp among the available packets (arrived before self.sim_timeline) of each STA
-        self._lastPosPosition : np.ndarray                                  # Stores the position of the packet reffered to lastPosTimestamp
+        # self._lastPosTimestamp : np.ndarray                                 # Stores the max timestamp among the available packets (arrived before self.sim_timeline) of each STA
+        # self._lastPosPosition : np.ndarray                                  # Stores the position of the packet reffered to lastPosTimestamp
 
         # Simulation-related
         self.simulation_system : str                                      # Simulation system -> DCF or CSR
@@ -59,8 +60,8 @@ class MAPCsim:
         self.CSRoverheads = sim_config['CSRoverheads']                                  # Total amount of CSR overheads
 
         # CSR-related
-        self.CGs_STAs : np.ndarray                                         # C-SR compatible groups of STAs
-        self.TxPowerMatrix : np.ndarray                                    # Transmission power matrix
+        self.CGs_STAs : list                                            # C-SR compatible groups of STAs
+        self.TxPowerMatrix : np.ndarray                                 # Transmission power matrix
         self.scheduler : str                            # scheduling: - Number of packets: 'MNP' 
                                                         #             - Oldest packet: 'OP'
                                                         #             - Random selection: 'Random'
@@ -181,8 +182,6 @@ class MAPCsim:
         # If an external agent decision is provided
         if agent_decision is not None:
             STA_rx, APs = agent_decision
-            # STA_rx = agent_decision[0]
-            # APs = agent_decision[1]
         else:
             if self.simulation_system == 'DCF':
                 if self.validation_flag == 'yes':
@@ -201,49 +200,46 @@ class MAPCsim:
 
                 APs = np.atleast_1d(self.TXOPwinner)
             else:
-                # Scheduling logic for other systems
-                CGs = self.CGs_STAs.copy()
-                per_STA_ScorePackets = np.zeros(self.STA_NUMBER, dtype=int)
 
-                for j in range(self.STA_NUMBER):
-                    if self._firstPosTimestamp[j] > self.sim_timeline: # If the first packet is not available to be transmitted
-                        CGs[np.where(CGs == j)] = np.nan # Remove the STA from the CGs
-                        continue
-                    
-                    tx_vector_pos = self.get_queue(j)
-
-                    # Find the number of packets that can be transmitted per STA
-                    per_STA_ScorePackets[j] = len(tx_vector_pos)
-
-                    # Update the last packet position and timestamp
-                    self._lastPosPosition[j] = tx_vector_pos[-1]
-                    self._lastPosTimestamp[j] = self.STA_queue_timeline[j][self._lastPosPosition[j]]
-                
                 # Initialize variables
-                uni = []                            # Unique STAs
-                ScorePackets = []                   # Score based on the number of packets
-                ScoreTimeOldest = []                # Score based on the oldest packet (timestamp)
-                ScoreTAT = []                       # Score based on TAT----->   delta_nt + self.beta * (Delta_nt - self.alpha * delta_nt)
+                CGs = copy.deepcopy(self.CGs_STAs)
+                per_STA_ScorePackets = np.zeros(self.STA_NUMBER, dtype=int)
+                placeholder = -1 # Placeholder for inactive STAs
 
-                for i in np.where(~np.all(np.isnan(CGs), axis=1))[0]:
-                    u = CGs[i][~np.isnan(CGs[i])].astype(int)
+                # Identify inactive STAs and update CGs
+                inactive_STAs = np.where(self._firstPosTimestamp > self.sim_timeline)[0]
+                inactive_set = set(inactive_STAs)
+                for cg in CGs:
+                    cg[:] = [placeholder if sta in inactive_set else sta for sta in cg]
+
+                # Calculate packets for all STAs
+                per_STA_ScorePackets = np.array([len(self.get_queue(j)) if j not in inactive_set else 0 for j in range(self.STA_NUMBER)])
+
+                # Scoring and unique STA extraction
+                uni = []                           # Unique STAs
+                ScorePackets = []                  # Score based on the number of packets
+                ScoreTimeOldest = []               # Score based on the oldest packet (timestamp)
+                ScoreTAT = []                      # Score based on TAT
+
+                # Iterate through CGs that contain valid STAs
+                for cg in CGs:
+                    u = [sta for sta in cg if sta != placeholder]
+                    if not u:
+                        continue
+
+                    # u = np.array(active_u)
                     uni.append(u)
-
-                    # ScorePackets.append(sum([per_STA_ScorePackets[idx] for idx in u]))
                     ScorePackets.append(np.sum(per_STA_ScorePackets[u]))
                     ScoreTimeOldest.append(np.min(self._firstPosTimestamp[u]))
 
                     if self.scheduler in ['TAT', 'Hybrid']:
                         ei_min = np.min(self._firstPosTimestamp[u])
                         ei_max = np.max(self._firstPosTimestamp[u])
-                        t = self.sim_timeline
-                        delta_nt = t - ei_min
-                        Delta_nt = t - ei_max
-
-                        if len(u) == 1:
-                            ScoreTAT.append(delta_nt)
-                        else:
-                            ScoreTAT.append(delta_nt + self.beta * (Delta_nt - self.alpha * delta_nt))
+                        delta_nt = self.sim_timeline - ei_min
+                        Delta_nt = self.sim_timeline - ei_max
+                        ScoreTAT.append(
+                            delta_nt if len(u) == 1 else delta_nt + self.beta * (Delta_nt - self.alpha * delta_nt)
+                        )
 
                 if self.validation_flag == 'yes':
                     if self.rrobin_CSR_group_selector == 0:
@@ -253,14 +249,14 @@ class MAPCsim:
                     idx_score = np.where(self.rrobin_CSR_group_selector == 1)[0][0]
                     self.rrobin_CSR_group_selector = np.roll(self.rrobin_CSR_group_selector, 1)
                 else:
-                    if self.scheduler == 'MNP':
+                    if self.scheduler == 'MNP':  # Maximum number of packets
                         maxScore = max(ScorePackets)
                         idx_score = np.argmax(ScorePackets)
                         equalScoreIdx = [i for i, score in enumerate(ScorePackets) if score == maxScore]
 
                         if len(equalScoreIdx) != 1:
                             idx_score = equalScoreIdx[np.argmin([ScoreTimeOldest[i] for i in equalScoreIdx])]
-                    elif self.scheduler == 'OP':
+                    elif self.scheduler == 'OP': # Oldest packet
                         minOldestScore = min(ScoreTimeOldest)
                         idx_score = np.argmin(ScoreTimeOldest)
                         equalScoreIdx = [i for i, score in enumerate(ScoreTimeOldest) if score == minOldestScore]
@@ -269,7 +265,7 @@ class MAPCsim:
                             idx_score = equalScoreIdx[np.argmax([ScorePackets[i] for i in equalScoreIdx])]
                     elif self.scheduler == 'Random':
                         idx_score = np.random.randint(len(uni))
-                    elif self.scheduler == 'TAT':
+                    elif self.scheduler == 'TAT': # Traffic-Alignment Tracker
                         maxScore = max(ScoreTAT)
                         idx_score = np.argmax(ScoreTAT)
                         equalScoreIdx = [i for i, score in enumerate(ScoreTAT) if score == maxScore]
@@ -278,10 +274,8 @@ class MAPCsim:
 
                 STA_rx = uni[idx_score]
 
-                APs = np.zeros(len(STA_rx), dtype=int)
-                for i, sta in enumerate(STA_rx):
-                    # Find the index of the association containing the station
-                    APs[i] = next((idx for idx, assoc in enumerate(self._association) if sta in assoc), -1)
+                # compute the corresponding APs which the STAs in STA_rx are associated with
+                APs = get_association(self._association, STA_rx)
 
         return STA_rx, APs
 
@@ -301,9 +295,12 @@ class MAPCsim:
         if len(STA_rx) == 1:
             P = self._MaxTxPower
         else:
-            rows = np.where(np.sum(np.isin(self.CGs_STAs, STA_rx), axis=1) == len(STA_rx))[0]
-            idx = rows[np.sum(~np.isnan(self.CGs_STAs[rows]), axis=1) == len(STA_rx)][0]
-            P = self.TxPowerMatrix[idx, APs]
+            try:
+                idx = next(i for i, cg in enumerate(self.CGs_STAs) if cg == STA_rx)
+            except StopIteration:
+                raise ValueError('Not found') # STA_rx not found
+            
+            P = self.TxPowerMatrix[idx]
 
         # Computing the SINR in dB 
         SINR_db = 10 * np.log10((P * np.diag(H)) / (self._NOISE_POWER + np.sum(H * P, axis=1) - np.diag(H) * P))
@@ -319,19 +316,15 @@ class MAPCsim:
 
             # Number of packets that can be aggregated
             agg_packets[k] = tx_packets(self._NSC, N_bps, Rc, self._NSS, data_tx_time)
-            # first packet available (position) for the sta
-            firstPos = self._firstPosPosition[sta]
-            # last packet available (position) for the sta
-            lastPos = np.where(self.STA_queue_timeline[sta] <= self.sim_timeline)[0][-1]
-            # packet range
-            packet_range = range(firstPos, lastPos + 1)
-            # tx vector position
-            tx_vector_pos = [p for p in packet_range if self._STA_queue_state[sta][p] == True]
+
+            # Vector with the available packets to be transmitted to a given STA at sim_timeline
+            tx_vector_pos = self.get_queue(sta)
+
             # number of packets that can be transmitted, i.e., min between aggregation and the number of available packets
             tx_Packets[k] = min(len(tx_vector_pos), agg_packets[k])
 
             # packets finally transmitted
-            tx_vector_pos = tx_vector_pos[:int(tx_Packets[k])]
+            tx_vector_pos = tx_vector_pos[:tx_Packets[k]]
 
             if self.validation_flag == 'yes':
                 temp_elapsed_time[k] = data_tx_time
@@ -400,8 +393,8 @@ class MAPCsim:
         # Traffic-related
         self._firstPosTimestamp = np.zeros((self.STA_NUMBER,), dtype=float)     # Stores the timestamp
         self._firstPosPosition = np.zeros((self.STA_NUMBER,), dtype=int)      # Stores the position of the first non-transmitted packet of each STA
-        self._lastPosTimestamp = np.zeros((self.STA_NUMBER,), dtype=float)    # Stores the max timestamp among the available packets (arrived before self.sim_timeline) of each STA
-        self._lastPosPosition = np.zeros((self.STA_NUMBER,), dtype=int)       # Stores the position of the packet reffered to lastPosTimestamp
+        # self._lastPosTimestamp = np.zeros((self.STA_NUMBER,), dtype=float)    # Stores the max timestamp among the available packets (arrived before self.sim_timeline) of each STA
+        # self._lastPosPosition = np.zeros((self.STA_NUMBER,), dtype=int)       # Stores the position of the packet reffered to lastPosTimestamp
         self.delivery_timestamp_record = []                               # Stores the delivery time of the packets of all STAs
         self._STA_queue_state = []                                       # Stores the state of the packets of all STAs. True = not transmitted, False = transmitted
 
@@ -484,32 +477,3 @@ class MAPCsim:
             self.run_step() # Run a single step of the simulation, optionally with external agent decision.
 
         self.TrafficAnalysis()
-
-
-    # def Run(self):
-    #     """Simulation process."""
-
-    #     while self.sim_timeline < self.timestamp_to_stop:
-    #         if min(self._firstPosTimestamp) > self.sim_timeline:
-    #             self.sim_timeline = min(self._firstPosTimestamp)
-
-    #         self.UpdateAP()
-
-    #         backofftime, self.TXOPwinner = self.Backoff()
-
-    #         self.sim_timeline += backofftime
-
-    #         STA_rx, APs = self.SchedulingV1()
-
-    #         if self.simulation_system == "DCF":
-    #             self.sim_timeline += self.preTX_overheadsDCF
-    #             data_tx_time = self._TXOP_DURATION - self.DCFoverheads
-    #         else:
-    #             self.sim_timeline += self.preTX_overheadsCSR
-    #             data_tx_time = self._TXOP_DURATION - self.CSRoverheads
-
-    #         elapsed_time = self.TXtimeCalc(STA_rx, APs, data_tx_time)
-
-    #         self.sim_timeline += elapsed_time + 16e-6 + 100e-6 + self._AIFS + 9e-6
-
-    #     self.TrafficAnalysis()
