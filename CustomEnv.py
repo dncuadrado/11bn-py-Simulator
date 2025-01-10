@@ -16,7 +16,7 @@ class CustomEnv(gym.Env):
             raise KeyError("sim_config must contain 'CGs_STAs' and 'STA_NUMBER' keys")
 
         # Define the action space
-        self.action_space = spaces.Discrete(sim_config['CGs_STAs'].shape[0])  # Number of valid actions
+        self.action_space = spaces.Discrete(len(sim_config['CGs_STAs']))  # Number of valid actions
 
         # Environment with multi-dimensional observation space
         self.observation_space = spaces.Dict({
@@ -25,6 +25,7 @@ class CustomEnv(gym.Env):
         })
 
         self.forward_flag = bool(True)
+        self.placeholder = -1
 
     def step(self, action):
         """
@@ -34,7 +35,7 @@ class CustomEnv(gym.Env):
         - done: Whether the episode has ended.
         """
         
-        if self.forward_flag: # False: the last action had no STAs to serve. Nothing happened, no need to forward the simulation now
+        if self.forward_flag == True: # False: the last action had no STAs to serve. Nothing happened, no need to forward the simulation now
             self.simulator.sim_forward()
 
         agent_decision = self.get_action(action)
@@ -82,7 +83,7 @@ class CustomEnv(gym.Env):
             agent_decision (list): The action. [STA_rx, APs] where STA_rx is the list with the index of the STAs that will be served and 
                                                                        APs is the list of APs that will transmit.
         """
-        uni = self.simulator.CGs_STAs[action][~np.isnan(self.simulator.CGs_STAs[action])].astype(int)
+        uni = self.simulator.CGs_STAs[action]
 
         STA_rx = [sta for sta in uni if self.simulator._firstPosTimestamp[sta] <= self.simulator.sim_timeline]
         APs = [next((idx for idx, assoc in enumerate(self.simulator._association) if sta in assoc), -1) for sta in STA_rx]
@@ -122,16 +123,21 @@ class CustomEnv(gym.Env):
         Returns:
             reward (float): The reward value
         """
+        # Add debug prints
 
         # self.simulator.TrafficAnalysis()
         # reward = np.min(-np.percentile(self.simulator.delayvector, 99))
         
         # Delay-based reward. Considering the worst delay of the hol packets among all STAs
-        if self.forward_flag:
+        if self.forward_flag:  
             reward = -(self.simulator.sim_timeline - np.min(self.simulator._firstPosTimestamp))
+            # if reward*1000 < -50:
+            #     print(f"Reward: {reward*1000} at timeline {self.simulator.sim_timeline}")
         else:
-            reward = -100000 
+            reward = -0.1
+
         
+
         return reward
 
 
