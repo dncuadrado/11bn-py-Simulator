@@ -703,18 +703,19 @@ def generate_combinations(AP_NUMBER, STA_NUMBER, association):
     # Maximum number of APs per group. CG_size can reduce the number of transmitters per combination. 
     CG_size = AP_NUMBER 
 
+    placeholder = -1
     # Step 1: Generate all possible combinations of STAs for each AP, including np.nan for NaN replacement
-    u_with_placeholders = [np.array([np.nan] + stas, dtype=float) for stas in association]
+    u_with_placeholders = [np.array([placeholder] + stas, dtype=int) for stas in association]
 
     # Step 2: Generate all possible combinations of AP-STAs using itertools.product
-    all_combinations = np.array(list(product(*u_with_placeholders)), dtype=float)
+    all_combinations = np.array(list(product(*u_with_placeholders)), dtype=int)
 
     # Step 3: Filter out rows where all elements are the placeholder (np.nan)
-    valid_combinations = all_combinations[~np.all(np.isnan(all_combinations), axis=1)]
+    valid_combinations = all_combinations[~np.all(all_combinations==placeholder, axis=1)]
 
     # Step 4: Apply filtering based on CG_size
     # Only keep rows where the number of non-placeholder elements is <= CG_size
-    idx_row = np.sum(~np.isnan(valid_combinations), axis=1)
+    idx_row = np.sum((valid_combinations!=placeholder), axis=1)
     valid_combinations = valid_combinations[idx_row <= CG_size]
 
     # Step 5: Remove duplicate rows
@@ -723,13 +724,29 @@ def generate_combinations(AP_NUMBER, STA_NUMBER, association):
     # Step 6: Sort rows by the number of placeholder elements (descending) and smallest non-placeholder integers
     valid_combinations = valid_combinations[
         np.lexsort((
-            np.min(np.where(~np.isnan(valid_combinations), valid_combinations, np.inf), axis=1),
-            -np.sum(np.isnan(valid_combinations), axis=1)
+            np.min(np.where(valid_combinations!=placeholder, valid_combinations, np.inf), axis=1),
+            -np.sum(valid_combinations==placeholder, axis=1)
         ))
     ]
 
-    return valid_combinations
+    # removing the placeholder
+    combs_list = [combs[np.where(combs!=placeholder)] for _, combs in enumerate(valid_combinations)]
+
+    return combs_list
 ####################################################################################################################
+
+def get_association(association, STAs):
+    """
+    The corresponding APs which the stations in STAs are associated to
+    Return:
+    APs : list
+    """
+    APs = [
+        next((idx for idx, assoc in enumerate(association) if sta in assoc), -1)
+        for sta in STAs
+    ]
+
+    return APs
 
 # Function to compute the C-SR groups and the corresponding power allocation
 def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channelMatrix, MaxTxPower, CG_filter, TPC_method): 
@@ -741,27 +758,26 @@ def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channel
     # Function to generate all possible combinations of AP-STAs for a given association
     map_matrix = generate_combinations(AP_NUMBER, STA_NUMBER, association)
 
-    # Create TxPowerMatrixTemp with the shape of map_matrix
-    TxPowerMatrixTemp = np.full(map_matrix.shape, np.nan)
-    # Fill the first [0:STA_NUMBER] rows with MaxTxPower in the columns where map_matrix[0:STA_NUMBER] is non-NaN
-    TxPowerMatrixTemp[0:STA_NUMBER] = np.where(~np.isnan(map_matrix[0:STA_NUMBER]), MaxTxPower, np.nan)
+    # Create TxPowerMatrixTemp with the same shape as map_matrix
+    TxPowerMatrixTemp = [np.full_like(row, MaxTxPower, dtype=float) if i<STA_NUMBER else np.full_like(row, np.nan, dtype=float) for i, row in enumerate(map_matrix)]
 
     # Other matrices initialization
-    datarate = np.full_like(TxPowerMatrixTemp, np.nan)
-    comb_ok = np.zeros(map_matrix.shape[0], dtype=bool)
-    Discardlist = np.ones(map_matrix.shape[0], dtype=bool)
+    datarate = [np.full_like(row, np.nan, dtype=float) for _, row in enumerate(map_matrix)]
+    comb_ok = np.zeros(len(map_matrix), dtype=bool)
+    discard_list = np.ones(len(map_matrix), dtype=bool)
 
     # Main loop for verifying groups
-    for i in range(map_matrix.shape[0]):
-        if Discardlist[i] == False:
+    for i in range(len(map_matrix)):
+        if discard_list[i] == False:
             continue
-
-        APs = np.where(~np.isnan(map_matrix[i,:]))[0].astype(int)
-        STAs = map_matrix[i, APs].astype(int)
+        
+        STAs = map_matrix[i]
+        APs = get_association(association, STAs)
+        
         H = channelMatrix[np.ix_(STAs, APs)]
 
         if len(STAs) == 1:  # Use maximum power for a single STA
-            P = np.full(len(STAs), MaxTxPower)  # Equivalent to MaxTxPower * ones(length(STAs), 1)
+            P = MaxTxPower  
         else:  # Compute the subset of power that maximizes the proportional fair transmission
             # TPC (Power allocation)
             
@@ -769,7 +785,7 @@ def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channel
             P = power_allocation(len(STAs), noise_power, H, MaxTxPower, NSC, NSS, TPC_method)
 
             # Store the power vector in TxPowerMatrixTemp
-            TxPowerMatrixTemp[i, APs] = P  
+            TxPowerMatrixTemp[i] = P  
 
         # Compute the SINR and datarate for each STA
         SINR = (P * np.diag(H)) / (noise_power + np.sum(H * P, axis=1) - np.diag(H) * P)
@@ -778,31 +794,37 @@ def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channel
         for k, _ in enumerate(STAs):
             MCS, N_bps, Rc = MCS_cal_PER_001(SINR_db[k])
             if np.isnan(MCS):
-                datarate[i, APs[k]] = 0 #SINR under the threshold
+                datarate[i][k] = 0 #SINR under the threshold
             else:
-                datarate[i, APs[k]] = NSC * N_bps * Rc * NSS / (12.8e-6 + 0.8e-6) # Datarate in bps
+                datarate[i][k] = NSC * N_bps * Rc * NSS / (12.8e-6 + 0.8e-6) # Datarate in bps
             
             # To filter out combinations using a specific criterium 
             if CG_filter == 'on': 
                 # if the datarate using CSR is lower than the datarate without CSR, discard the combination
-                if len(STAs) * datarate[i, APs[k]] >= datarate[STAs[k], APs[k]]:
+                if len(STAs) * datarate[i][k] >= datarate[STAs[k]]:
                     continue
                 else:
                     # Discarding the rest of combs where this STAs appear
-                    Discardlist[np.sum(np.isin(map_matrix,STAs), axis=1) >= len(STAs)] = False
+                    true_indices = np.where(discard_list)[0]
+                    mask = np.array([set(STAs).issubset(set(map_matrix[idx])) for idx in true_indices])
+                    discard_list[true_indices[mask]] = False
                     break
             elif CG_filter == 'off':  # No filtering. Only discards combinations with SINR under the threshold
-                if datarate[i, APs[k]] == 0:
-                    Discardlist[i] = False
+                if datarate[i][k] == 0:
+                    discard_list[i] = False
                     break
             else:
                 raise ValueError(f'Invalid CG_filter value: {CG_filter}. Choose "on" or "off"')
-        if Discardlist[i] == True:
+        if discard_list[i] == True:
             comb_ok[i] = True
 
-    TxPowerMatrix = TxPowerMatrixTemp[comb_ok]
-    CGs_STAs = map_matrix[comb_ok]
+    TxPowerMatrix = [row.tolist() for i, row in enumerate(TxPowerMatrixTemp) if comb_ok[i]==True]
+    CGs_STAs = [row.tolist() for i, row in enumerate(map_matrix) if comb_ok[i]==True]
 
+    # Validate that TxPowerMatrix and CGs_STAs have the same length
+    if len(TxPowerMatrix) != len(CGs_STAs):
+        raise ValueError('TxPowerMatrix and CGs_STAs have different lengths')
+    
     return CGs_STAs, TxPowerMatrix
 ####################################################################################################################
 
@@ -950,7 +972,7 @@ def Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to
 ####################################################################################################################
 
 # Function to compute the CSR throughput extending Bianchi's model 
-def Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, CGs_STAs, TxPowerMatrix, channelMatrix, PN_DBM, NSC, NSS, TXOP_DURATION, CSRoverheads, EDCAaccessCategory):
+def Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, association, CGs_STAs, TxPowerMatrix, channelMatrix, PN_DBM, NSC, NSS, TXOP_DURATION, CSRoverheads, EDCAaccessCategory):
     noise_power = 10**(PN_DBM / 10)
     
     # MAPC overheads
@@ -960,20 +982,22 @@ def Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, CGs_STAs, TxPowerMatrix, chann
     Te = 9e-6
 
     # Initialize the rx_packets and per_STA_rx_packets arrays
-    rx_packets = np.zeros(CGs_STAs.shape)
+    # rx_packets = np.zeros(len(CGs_STAs), dtype=int)
+    rx_packets = [np.zeros(len(row), dtype=int) for row in CGs_STAs]
     per_STA_rx_packets = {sta: [] for sta in range(STA_NUMBER)}
-
-    for i in range(CGs_STAs.shape[0]):
-
-        APs = np.where(~np.isnan(CGs_STAs[i,:]))[0].astype(int)
-        STAs = CGs_STAs[i, APs].astype(int)
+    
+    for i in range(len(CGs_STAs)):
+        
+        STAs = CGs_STAs[i]
+        APs = get_association(association, STAs)
+        
         H = channelMatrix[np.ix_(STAs, APs)]
     
         MCS = np.full(len(STAs), np.nan)
         N_bps = np.full(len(STAs), np.nan)
         Rc = np.full(len(STAs), np.nan)
         
-        P = TxPowerMatrix[i, APs]
+        P = TxPowerMatrix[i]
         SINR_db = 10 * np.log10((P * np.diag(H)) / (noise_power + np.sum(H * P, axis=1) - np.diag(H) * P))
         
         for k in range(len(STAs)):
@@ -981,15 +1005,15 @@ def Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, CGs_STAs, TxPowerMatrix, chann
             MCS[k], N_bps[k], Rc[k] = MCS_cal_PER_001(SINR_db[k])
 
             if np.isnan(MCS[k]):
-                rx_packets[i, APs[k]] = 0
+                rx_packets[i][k] = 0
             else:
                 # Assuming tx_packets is a function that calculates the number of packets transmitted
-                rx_packets[i, APs[k]] = tx_packets(NSC, N_bps[k], Rc[k], NSS, TXOP_DURATION - CSRoverheads)
+                rx_packets[i][k] = tx_packets(NSC, N_bps[k], Rc[k], NSS, TXOP_DURATION - CSRoverheads)
             
-            if rx_packets[i, APs[k]] > 1024:
+            if rx_packets[i][k] > 1024:
                 raise ValueError('Impossible to transmit more than 1024 MSDUs')
     
-            per_STA_rx_packets[STAs[k]].append(rx_packets[i, APs[k]])
+            per_STA_rx_packets[STAs[k]].append(rx_packets[i][k])
 
     # Bianchi section
     L = 12e3  # Frame length (bytes)
@@ -1006,7 +1030,7 @@ def Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, CGs_STAs, TxPowerMatrix, chann
     AIFS = AIFSN * Te + TSIFS
     Tcoll = TMAPC_ICF + TSIFS + TMAPC_ICR + AIFS + Te;       # Collision duration
 
-    p_comb = 1 / CGs_STAs.shape[0]  # Round-robin transmission probability
+    p_comb = 1 / len(CGs_STAs)  # Round-robin transmission probability
     
     DL_throughput_CSR_bianchi = np.zeros(STA_NUMBER)
     for kk in range(STA_NUMBER):
