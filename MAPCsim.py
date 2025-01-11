@@ -71,6 +71,7 @@ class MAPCsim:
         self.beta = 0.5                                                   # Beta value for TAT. Default value is 0.5
         
         # Results
+        self.per_TXOP_STA_tx_packets : np.ndarray                         # Number of packets transmitted per STA per TXOP
         self.STAselectionCounter : np.ndarray                             # Counter for the number of times each STA is selected
         self.throughput_sim : np.ndarray                                  # Throughput of each STA
         self.delay_per_STA : list                                         # Delay of each STA
@@ -92,10 +93,20 @@ class MAPCsim:
         Updates STA properties when packets are received.
         """
         if rx_vector_pos:
+            # Update the queue state of the STA
             self._STA_queue_state[STA_rx][rx_vector_pos] = False
+            
+            # Update the delivery timestamp record
             self.delivery_timestamp_record[STA_rx][rx_vector_pos] = self.sim_timeline + temp_elapsed_time
+            
+            # Update the first position timestamp and position
             self._firstPosPosition[STA_rx] = np.argmax(self._STA_queue_state[STA_rx])
             self._firstPosTimestamp[STA_rx] = self.STA_queue_timeline[STA_rx][self._firstPosPosition[STA_rx]]
+            
+            # Update the number of tx packet in the current TXOP
+            self.per_TXOP_STA_tx_packets[STA_rx] = len(rx_vector_pos)
+
+        # Update the number of times each STA is selected    
         self.STAselectionCounter[STA_rx] += 1
 
     def Backoff(self):
@@ -424,6 +435,7 @@ class MAPCsim:
         self._TXOPcollision = np.zeros((self.AP_NUMBER,), dtype=int)          # Number of TXOP collisions for each AP
 
         # Results
+        self.per_TXOP_STA_tx_packets = np.zeros((self.STA_NUMBER,), dtype=int)          # Number of packets transmitted per STA per TXOP
         self.STAselectionCounter = np.zeros((self.STA_NUMBER,), dtype=int)    # Counter for the number of times each STA is selected
         self.throughput_sim = np.zeros((self.STA_NUMBER,), dtype=float)                    # Throughput of each STA
         self.delay_per_STA = []                                           # Delay of each STA
@@ -438,6 +450,9 @@ class MAPCsim:
         
         # Update APs_packet_indicator vector to indicate whether each AP has packets to transmit
         self.UpdateAP()
+
+        # Reset the number of packets transmitted per STA per TXOP
+        self.per_TXOP_STA_tx_packets = np.zeros((self.STA_NUMBER,), dtype=int)
 
         # Backoff process
         backofftime, self.TXOPwinner = self.Backoff()
