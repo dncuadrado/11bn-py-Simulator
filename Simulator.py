@@ -12,7 +12,6 @@ from tqdm import tqdm
 from Utils import *
 from MAPCsim import *
 from TrafficGenerator import TrafficGenerator
-# from TrafficGenerator import TrafficGenerator, poisson_fixed_events, generate_burst_traffic, generate_vr_traffic
 
 
 
@@ -78,7 +77,7 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
 
     CGs_STAs, TxPowerMatrix = CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, 
                                              association, channelMatrix, MaxTxPower, 
-                                             CG_filter='off', TPC_method='PSO')    # TPC Optimization method: None, 'PSO', 'IPOPT', 'DE'
+                                             CG_filter='on', TPC_method='PSO')    # TPC Optimization method: None, 'PSO', 'IPOPT', 'DE'
                                               
     
     per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to_export, PN_DBM, NSC, NSS, TXOP_DURATION, 
@@ -120,11 +119,11 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
     with h5py.File(h5_file_path, 'r') as h5file:
       STAs_arrivals_matrix = np.array([h5file[key][:] for key in h5file.keys()])
 
-    # # # # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
-    # STAs_arrivals_matrix = TrafficGenerator(
-    #     STA_NUMBER, validation_flag, traffic_type, traffic_load, L, per_STA_DCF_throughput_bianchi, 
-    #     EVENT_NUMBER = 15000 # Number of events considered for traffic generation
-    #     ) 
+    # # # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
+    STAs_arrivals_matrix = TrafficGenerator(
+        STA_NUMBER, validation_flag, traffic_type, traffic_load, L, per_STA_DCF_throughput_bianchi, 
+        EVENT_NUMBER = 15000 # Number of events considered for traffic generation
+        ) 
     
 
     # # Create a Gym-compatible environment
@@ -133,6 +132,7 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
     #     simulator = MAPCsim(sim_config)  # new "MAPC simulator" object
     #     simulator.simulation_system = 'CSR'
     #     simulator.CGs_STAs = CGs_STAs
+    #     simulator.STA_queue_timeline = STAs_arrivals_matrix
     #     simulator.TxPowerMatrix = TxPowerMatrix
     #     simulator.accessCategory = EDCAaccessCategory
     #     return CustomEnv(sim_config, simulator)
@@ -141,14 +141,10 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
     # log_dir = '/home/david/Documents/Papers/journal_ML_CSR/python Code/trained_models'
     # os.makedirs(log_dir, exist_ok=True)
 
-    # env = DummyVecEnv([create_env])  # Wrap the environment
+    # # env = DummyVecEnv([create_env])  # Wrap the environment
     
     # # Check the environment. Use the basic custom environment from gym: 
-    # # env = CustomEnv(sim_config, simulator)
-    # # check_env(env)
-
-    # # # Wrap your environment in a list of lambdas for parallel environments
-    # # env = SubprocVecEnv([lambda: create_env() for _ in range(1)])  # n_envs=1
+    # check_env(create_env())
 
     # # Initialize PPO agent
     # model = PPO("MultiInputPolicy", env, verbose=1)
@@ -259,81 +255,84 @@ def save_to_h5(output_dir, sim, traffic_type, traffic_load, ITERATIONS, DCFdelay
         f.create_dataset('TATdelay', data=TATdelay)
 
 
-# Start Timer
-start_time = time.time()
+# Main function
+if __name__ == "__main__":
 
-###### Input parameters
-validation_flag = 'no'
+    # Start Timer
+    start_time = time.time()
 
-# traffic_types = ['Poisson', 'Bursty', 'VR']
-# traffic_loads = {
-#     'Poisson': ['low', 'medium', 'high'],
-#     'Bursty': ['low', 'medium', 'high'],
-#     'VR': ['30-60', '30-90', '30-120']
-# }
+    ###### Input parameters
+    validation_flag = 'no'
 
-traffic_types = ['Bursty']
-traffic_loads = {
-    'Bursty': ['high']
-}
+    # traffic_types = ['Poisson', 'Bursty', 'VR']
+    # traffic_loads = {
+    #     'Poisson': ['low', 'medium', 'high'],
+    #     'Bursty': ['low', 'medium', 'high'],
+    #     'VR': ['30-60', '30-90', '30-120']
+    # }
 
-
-# Scenario-related
-AP_NUMBER = 4
-STA_NUMBER = 16
-GRID_VALUE = 60
-SCENARIO_TYPE = 'grid'
-
-sim = '30metros-16STAs'
-walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
-                  [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
-
-# System-related parameters
-TXOP_DURATION = 5E-3
-PN_DBM = -95
-CCA = -82
-BW = 80
-NSS = 2
-L = 12E3
-
-ITERATIONS = 100
-
-### Channel-related parameters
-MaxTxPower, NSC = TXpowerCalc(BW, NSS)
+    traffic_types = ['Bursty']
+    traffic_loads = {
+        'Bursty': ['high']
+    }
 
 
-# ### Load deployment data
-h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
-with h5py.File(h5file_deployments_path, 'r') as f:
-    STA_matrix_save = f['STA_matrix_save'][:]
-    channelMatrix_save = f['channelMatrix_save'][:]
-    RSSI_dB_vector_to_export_save = f['RSSI_dB_vector_to_export_save'][:]
+    # Scenario-related
+    AP_NUMBER = 4
+    STA_NUMBER = 16
+    GRID_VALUE = 60
+    SCENARIO_TYPE = 'grid'
 
-### Output directory    
-output_dir = os.path.join(os.getcwd(), 'Results/Simulation')
+    sim = '30metros-16STAs'
+    walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
+                    [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
 
-# Run simulations with progress bar
-max_workers = 1  # Adjust the number of workers as needed
-with ProcessPoolExecutor(max_workers=max_workers) as executor:
-    for traffic_type in traffic_types:
-        for traffic_load in traffic_loads[traffic_type]:
-            futures = [
-                executor.submit(
-                    simulate_iterations, sim, traffic_type, traffic_load, i
-                )
-                for i in range(ITERATIONS)
-            ]
-            for i, future in enumerate(tqdm(futures, desc=f"{traffic_type} {traffic_load}", unit=" iterations")):
-                try:
-                    # DCFdelay, MNPdelay, OPdelay, TATdelay = future.result()
-                    future.result()
+    # System-related parameters
+    TXOP_DURATION = 5E-3
+    PN_DBM = -95
+    CCA = -82
+    BW = 80
+    NSS = 2
+    L = 12E3
 
-                    ### Uncoment to save the delay vectors into HDF5 files for each iterations, traffic type, and traffic load in a structured directory
-                    # save_to_h5(output_dir, sim, traffic_type, traffic_load, i, DCFdelay, MNPdelay, OPdelay, TATdelay)
-                
-                except Exception as e:
-                    print(f"Error in iterations {i} for {traffic_type} {traffic_load}: {e}")
+    ITERATIONS = 100
 
-# End Timer and print elapsed time
-end_time = time.time()
-print(f"Simulation took {end_time - start_time:.2f} seconds")
+    ### Channel-related parameters
+    MaxTxPower, NSC = TXpowerCalc(BW, NSS)
+
+
+    # ### Load deployment data
+    h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
+    with h5py.File(h5file_deployments_path, 'r') as f:
+        STA_matrix_save = f['STA_matrix_save'][:]
+        channelMatrix_save = f['channelMatrix_save'][:]
+        RSSI_dB_vector_to_export_save = f['RSSI_dB_vector_to_export_save'][:]
+
+    ### Output directory    
+    output_dir = os.path.join(os.getcwd(), 'Results/Simulation')
+
+    # Run simulations with progress bar
+    max_workers = 1  # Adjust the number of workers as needed
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        for traffic_type in traffic_types:
+            for traffic_load in traffic_loads[traffic_type]:
+                futures = [
+                    executor.submit(
+                        simulate_iterations, sim, traffic_type, traffic_load, i
+                    )
+                    for i in range(ITERATIONS)
+                ]
+                for i, future in enumerate(tqdm(futures, desc=f"{traffic_type} {traffic_load}", unit=" iterations")):
+                    try:
+                        # DCFdelay, MNPdelay, OPdelay, TATdelay = future.result()
+                        future.result()
+
+                        ### Uncoment to save the delay vectors into HDF5 files for each iterations, traffic type, and traffic load in a structured directory
+                        # save_to_h5(output_dir, sim, traffic_type, traffic_load, i, DCFdelay, MNPdelay, OPdelay, TATdelay)
+                    
+                    except Exception as e:
+                        print(f"Error in iterations {i} for {traffic_type} {traffic_load}: {e}")
+
+    # End Timer and print elapsed time
+    end_time = time.time()
+    print(f"Simulation took {end_time - start_time:.2f} seconds")
