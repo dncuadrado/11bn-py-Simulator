@@ -24,7 +24,7 @@ class MAPCsim:
         
         # Simulation-related
         self.sim_timeline = 0                                                # Simulation timeline
-        self.timestamp_to_stop = sim_config['timestamp_to_stop']                        # Timestamp to stop the simulation
+        self.timestamp_to_stop : float                        # Timestamp to stop the simulation
 
         # Traffic-related
         self.accessCategory : str                                         # Access category                  
@@ -34,8 +34,6 @@ class MAPCsim:
         
         self._firstPosTimestamp : np.ndarray                                # Stores the timestamp of the first non-transmitted packet of each STA
         self._firstPosPosition : np.ndarray                                 # Stores the position of the first non-transmitted packet of each STA
-        # self._lastPosTimestamp : np.ndarray                                 # Stores the max timestamp among the available packets (arrived before self.sim_timeline) of each STA
-        # self._lastPosPosition : np.ndarray                                  # Stores the position of the packet reffered to lastPosTimestamp
 
         # Simulation-related
         self.simulation_system : str                                      # Simulation system -> DCF or CSR
@@ -404,8 +402,6 @@ class MAPCsim:
         # Traffic-related
         self._firstPosTimestamp = np.zeros((self.STA_NUMBER,), dtype=float)     # Stores the timestamp
         self._firstPosPosition = np.zeros((self.STA_NUMBER,), dtype=int)      # Stores the position of the first non-transmitted packet of each STA
-        # self._lastPosTimestamp = np.zeros((self.STA_NUMBER,), dtype=float)    # Stores the max timestamp among the available packets (arrived before self.sim_timeline) of each STA
-        # self._lastPosPosition = np.zeros((self.STA_NUMBER,), dtype=int)       # Stores the position of the packet reffered to lastPosTimestamp
         self.delivery_timestamp_record = []                               # Stores the delivery time of the packets of all STAs
         self._STA_queue_state = []                                       # Stores the state of the packets of all STAs. True = not transmitted, False = transmitted
 
