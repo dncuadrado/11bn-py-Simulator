@@ -18,14 +18,17 @@ class CustomEnv(gym.Env):
         # Define the action space
         self.action_space = spaces.Discrete(len(sim_config['CGs_STAs']))  # Number of valid actions
 
-        # Environment with multi-dimensional observation space
-        self.observation_space = spaces.Dict({
-            "queue_sizes": spaces.Box(low=0, high=1000, shape=(sim_config['STA_NUMBER'],), dtype=int),
-            "delays": spaces.Box(low=0, high=1000, shape=(sim_config['STA_NUMBER'],), dtype=float)
-        })
+        # # Environment with multi-dimensional observation space
+        # self.observation_space = spaces.Dict({
+        #     "queue_sizes": spaces.Box(low=0, high=1000, shape=(sim_config['STA_NUMBER'],), dtype=int),
+        #     "delays": spaces.Box(low=0, high=1000, shape=(sim_config['STA_NUMBER'],), dtype=float)
+        # })
 
+        # Environment with flatten observation space
+        self.observation_space = spaces.Box(low=0, high=1023, shape=(sim_config['STA_NUMBER'],), dtype=int)
+
+        # Flag to control whether to forward the simulation or not. Used when the agent takes an action with no STAs to serve in the previous step           
         self.forward_flag = bool(True)
-        self.placeholder = -1
 
     def step(self, action):
         """
@@ -38,18 +41,18 @@ class CustomEnv(gym.Env):
         if self.forward_flag == True: # False: the last action had no STAs to serve. Nothing happened, no need to forward the simulation now
             self.simulator.sim_forward()
 
+        # Get the action
         agent_decision = self.get_action(action)
-
+        
+        # Execute the action
         self.simulator.run_step(agent_decision)
 
+        # Get the observation
         obs = self.get_state()
-
-        # self.apply_action(action)  # Map action index to simulator's logic
 
 
         # Check termination conditions
-        terminated = bool(self.simulator.sim_timeline >= self.simulator.timestamp_to_stop)
-        truncated = bool(self.simulator.sim_timeline >= self.simulator.timestamp_to_stop)
+        terminated = truncated = bool(self.simulator.sim_timeline >= self.simulator.timestamp_to_stop)
 
         # Get the reward
         reward = self.get_reward()
@@ -88,11 +91,6 @@ class CustomEnv(gym.Env):
         STA_rx = [sta for sta in uni if self.simulator._firstPosTimestamp[sta] <= self.simulator.sim_timeline]
         APs = [next((idx for idx, assoc in enumerate(self.simulator._association) if sta in assoc), -1) for sta in STA_rx]
 
-        # # Check if there are STAs in the group that have packets to transmit
-        # if not STA_rx:
-        #     print(f"Warning: No STAs in group of STAs: {uni} ----have packets to transmit at timeline {self.simulator.sim_timeline}.")
-
-        # setting the forward flag to indicate that the current action has STAs to serve
         if STA_rx:
             self.forward_flag = True
         else:
@@ -109,33 +107,42 @@ class CustomEnv(gym.Env):
         Returns:
             observation (dict): The observation.
         """
+        
         queue_sizes = np.array([len(self.simulator.get_queue(sta)) if self.simulator._firstPosTimestamp[sta] <= self.simulator.sim_timeline else 0 for sta in range(self.STA_NUMBER)])
-        delays = np.array([self.simulator.sim_timeline - self.simulator._firstPosTimestamp[sta] if self.simulator._firstPosTimestamp[sta] <= self.simulator.sim_timeline else 0 for sta in range(self.STA_NUMBER)])
+        # delays = np.array([self.simulator.sim_timeline - self.simulator._firstPosTimestamp[sta] if self.simulator._firstPosTimestamp[sta] <= self.simulator.sim_timeline else 0 for sta in range(self.STA_NUMBER)])
 
-        obs = {
-            "queue_sizes": queue_sizes,
-            "delays": delays
-        }
+        # # # Environment with multi-dimensional observation space
+        # obs = {
+        #     "queue_sizes": queue_sizes,
+        #     "delays": delays
+        # }
+
+        # Environment with only one observation space
+        obs = queue_sizes
+
+
         return obs
     
     def get_reward(self):
         """ Compute the reward
         Returns:
-            reward (float): The reward value
+            reward (float): The reward value if delay-based
+            reward (int): The reward value if packet-based
         """
-        # Add debug prints
-
-        # self.simulator.TrafficAnalysis()
-        # reward = np.min(-np.percentile(self.simulator.delayvector, 99))
         
-        # Delay-based reward. Considering the worst delay of the hol packets among all STAs
-        if self.forward_flag:  
-            reward = -(self.simulator.sim_timeline - np.min(self.simulator._firstPosTimestamp))
-            # if reward*1000 < -50:
-            #     print(f"Reward: {reward*1000} at timeline {self.simulator.sim_timeline}")
-        else:
-            reward = -0.1
+        # # Delay-based reward. Considering the worst delay of the hol packets among all STAs
+        # if self.forward_flag:  
+        #     reward = -(self.simulator.sim_timeline - np.min(self.simulator._firstPosTimestamp))
+        #     # if reward*1000 < -50:
+        #     #     print(f"Reward: {reward*1000} at timeline {self.simulator.sim_timeline}")
+        # else:
+        #     reward = -0.1
 
+        # Packet-based reward
+        if self.forward_flag:
+            reward = np.sum(self.simulator.per_TXOP_STA_tx_packets)
+        else:
+            reward = 0
         
 
         return reward
