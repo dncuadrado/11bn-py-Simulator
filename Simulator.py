@@ -124,62 +124,10 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
         STA_NUMBER, validation_flag, traffic_type, traffic_load, L, per_STA_DCF_throughput_bianchi, 
         EVENT_NUMBER = 15000 # Number of events considered for traffic generation
         ) 
-    
-
-    # # Create a Gym-compatible environment
-    # def create_env():
-    #     np.random.seed(seed)
-    #     simulator = MAPCsim(sim_config)  # new "MAPC simulator" object
-    #     simulator.simulation_system = 'CSR'
-    #     simulator.CGs_STAs = CGs_STAs
-    #     simulator.STA_queue_timeline = STAs_arrivals_matrix
-    #     simulator.TxPowerMatrix = TxPowerMatrix
-    #     simulator.accessCategory = EDCAaccessCategory
-    #     return CustomEnv(sim_config, simulator)
-
-    # # Create log dir
-    # log_dir = '/home/david/Documents/Papers/journal_ML_CSR/python Code/trained_models'
-    # os.makedirs(log_dir, exist_ok=True)
-
-    # # env = DummyVecEnv([create_env])  # Wrap the environment
-    
-    # # Check the environment. Use the basic custom environment from gym: 
-    # check_env(create_env())
-
-    # # Initialize PPO agent
-    # model = PPO("MultiInputPolicy", env, verbose=1)
-
-    # num_episodes = 10000  # Number of episodes to train
-    # total_timesteps_per_episode = 50000  # Number of timesteps per episode as max, 
-    #                                     # the actual number may be less and it depends on the truncated flag, which is True when: 
-    #                                     # truncated = bool(self.simulator.sim_timeline >= self.simulator.timestamp_to_stop)
-
-    # # Training loop with custom traffic and episodes
-    # for episode in range(num_episodes):
-    #     # Generate new traffic for this episode
-    #     STAs_arrivals_matrix = TrafficGenerator(
-    #         STA_NUMBER, validation_flag, traffic_type, traffic_load, L, per_STA_DCF_throughput_bianchi, 
-    #         EVENT_NUMBER = 15000 # Number of events considered for traffic generation
-    #     )
-
-    #     # Validate that the traffic lasts more than timestamp_to_stop
-    #     if any(x < timestamp_to_stop for x in [STAs_arrivals_matrix[i][-1] for i in range(STA_NUMBER)]):
-    #         raise ValueError(f'Traffic should last more than timestamp_to_stop: {timestamp_to_stop} seconds') 
-        
-    #     # Set traffic for the simulator and environment
-    #     simulator = env.get_attr("simulator")[0]  # Access the simulator from the vectorized env
-    #     simulator.STA_queue_timeline = STAs_arrivals_matrix
-
-    #     # Train for the specified timesteps
-    #     model.learn(total_timesteps=total_timesteps_per_episode)
-
-    #     # Reset the environment for the next episode
-    #     env.reset() 
-
-    # print(f'Training completed for deployment: {iter}')
 
     np.random.seed(seed)
     simDCF = MAPCsim(sim_config)  # new "MAPC simulator" object
+    simDCF.timestamp_to_stop = timestamp_to_stop
     simDCF.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simDCF.simulation_system = 'DCF'
     simDCF.accessCategory = EDCAaccessCategory
@@ -189,6 +137,7 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
 
     np.random.seed(seed)
     simMNP = MAPCsim(sim_config)  # new "MAPC simulator" object
+    simMNP.timestamp_to_stop = timestamp_to_stop
     simMNP.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simMNP.simulation_system = 'CSR'
     simMNP.scheduler = 'MNP'
@@ -200,6 +149,7 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
 
     np.random.seed(seed)
     simOP = MAPCsim(sim_config)  # new "MAPC simulator" object
+    simOP.timestamp_to_stop = timestamp_to_stop
     simOP.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simOP.simulation_system = 'CSR'
     simOP.scheduler = 'OP'
@@ -211,6 +161,7 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
 
     np.random.seed(seed)
     simTAT = MAPCsim(sim_config)  # new "MAPC simulator" object
+    simTAT.timestamp_to_stop = timestamp_to_stop
     simTAT.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simTAT.simulation_system = 'CSR'
     simTAT.scheduler = 'TAT'
