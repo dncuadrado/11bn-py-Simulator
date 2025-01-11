@@ -6,8 +6,8 @@ class CustomEnv(gym.Env):
     """Custom Environment that follows gym interface."""
     def __init__(self, sim_config, simulator):
         super().__init__()
-        # super(CustomEnv, self).__init__()
 
+        self.learning_timestamp_to_stop = sim_config['learning_timestamp_to_stop']
         self.simulator = simulator
 
         self.STA_NUMBER = sim_config['STA_NUMBER']
@@ -52,7 +52,7 @@ class CustomEnv(gym.Env):
 
 
         # Check termination conditions
-        terminated = truncated = bool(self.simulator.sim_timeline >= self.simulator.timestamp_to_stop)
+        terminated = truncated = bool(self.simulator.sim_timeline >= self.learning_timestamp_to_stop)
 
         # Get the reward
         reward = self.get_reward()
@@ -69,7 +69,7 @@ class CustomEnv(gym.Env):
         """
 
         # Seed the environment if seed is provided
-        super().reset(seed=seed)  # This will seed self.np_random
+        super().reset(seed=seed)  #
 
         self.simulator.InitSettings()
         self.simulator.sim_forward()
