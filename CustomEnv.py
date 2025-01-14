@@ -1,7 +1,9 @@
 import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
+import copy
 from TrafficGenerator import TrafficGenerator   
+from Utils import get_association
 
 class CustomEnv(gym.Env):
     """Custom Environment that follows gym interface."""
@@ -22,7 +24,7 @@ class CustomEnv(gym.Env):
 
 
         # Define the action space
-        self.action_space = spaces.Discrete(len(sim_config['CGs_STAs']))  # Number of valid actions
+        self.action_space = spaces.Discrete(len(self.simulator.CGs_STAs))  # Number of valid actions
 
         # # # Environment with multi-dimensional observation space
         # self.observation_space = spaces.Dict({
@@ -31,8 +33,8 @@ class CustomEnv(gym.Env):
         # })
 
         # # Environment with flatten observation space
-        self.observation_space = spaces.Box(low=0, high=1023, shape=(self.sim_config['STA_NUMBER'],), dtype=int)
-        # self.observation_space = spaces.Box(low=0, high=1023, shape=(sim_config['STA_NUMBER'],), dtype=float)
+        # self.observation_space = spaces.Box(low=0, high=1023, shape=(self.sim_config['STA_NUMBER'],), dtype=int)
+        self.observation_space = spaces.Box(low=0, high=1000, shape=(sim_config['STA_NUMBER'],), dtype=float)
 
         # Flag to control whether to forward the simulation or not. Used when the agent takes an action with no STAs to serve in the previous step           
         self.forward_flag = bool(False)
@@ -130,8 +132,8 @@ class CustomEnv(gym.Env):
         else:
             self.forward_flag = False
 
-        if self.sim_config['training_flag'] == False:
-            raise ValueError("The environment is in validation mode. Void actions are not allowed")
+        # if self.sim_config['training_flag'] == False:
+        #     raise ValueError("The environment is in validation mode. Void actions are not allowed")
 
         # Agent decision to be passed to the simulator
         agent_decision = [STA_rx, APs]
@@ -155,8 +157,8 @@ class CustomEnv(gym.Env):
         # }
 
         # Environment with only one observation space
-        obs = queue_sizes
-        # obs = delays
+        # obs = queue_sizes
+        obs = delays
 
 
         return obs
@@ -174,13 +176,13 @@ class CustomEnv(gym.Env):
             # if reward*1000 < -50:
             #     print(f"Reward: {reward*1000} at timeline {self.simulator.sim_timeline}")
         else:
-            reward = -0.1
+            reward = -1
 
         # # Packet-based reward
         # if self.forward_flag:
         #     reward = np.sum(self.simulator.per_TXOP_STA_tx_packets)
         # else:
-        #     reward = 0
+        #     reward = -100
         
 
         return reward
