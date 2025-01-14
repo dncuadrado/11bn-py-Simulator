@@ -810,9 +810,10 @@ def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channel
                     discard_list[true_indices[mask]] = False
                     break
             elif CG_filter == 'off':  # No filtering. Only discards combinations with SINR under the threshold
-                if datarate[i][k] == 0:
-                    discard_list[i] = False
-                    break
+                continue
+                # if datarate[i][k] == 0:
+                #     discard_list[i] = False
+                #     break
             else:
                 raise ValueError(f'Invalid CG_filter value: {CG_filter}. Choose "on" or "off"')
         if discard_list[i] == True:

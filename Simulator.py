@@ -17,7 +17,7 @@ from TrafficGenerator import TrafficGenerator
 
 # RL Model (e.g., PPO)
 from CustomEnv import * # my Custom environment
-from stable_baselines3 import PPO
+from stable_baselines3 import PPO, DQN, A2C
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.vec_env import SubprocVecEnv
@@ -82,10 +82,6 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
     
     per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to_export, PN_DBM, NSC, NSS, TXOP_DURATION, 
                                                             DCFoverheads, EDCAaccessCategory)
-    
-
-    # Simulation duration
-    timestamp_to_stop = 5  # seconds
 
     # Set the seed
     seed = 1
@@ -98,6 +94,8 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
         'MaxTxPower': MaxTxPower,
         'channelMatrix': channelMatrix,
         'traffic_type': traffic_type,
+        'traffic_load' : traffic_load,
+        'EDCAaccessCategory': EDCAaccessCategory,
         'validation_flag': 'no',
         'TXOP_DURATION': TXOP_DURATION,
         'PN_DBM': PN_DBM,
@@ -107,9 +105,23 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
         'preTX_overheadsCSR': preTX_overheadsCSR,
         'DCFoverheads': DCFoverheads,
         'CSRoverheads': CSRoverheads,
-        'timestamp_to_stop': timestamp_to_stop,
+        'learning_timestamp_to_stop': 1, # seconds
+        'training_flag': False,
+        'timestamp_to_stop': 5, # seconds
         'CGs_STAs': CGs_STAs,
-        'TxPowerMatrix': TxPowerMatrix
+        'TxPowerMatrix': TxPowerMatrix,
+        'L': L,
+        'per_STA_DCF_throughput_bianchi': per_STA_DCF_throughput_bianchi,
+        'EVENT_NUMBER': 15000, # Number of events considered for traffic generation
+        'seed': seed
+    }
+
+    # Learning Configuration
+    learning_config = {
+        'log_dir': '/home/david/Documents/Papers/journal_ML_CSR/python Code/trained_models',
+        'parallel_envs': 1,
+        'num_episodes': 2E6,
+        'simulator_attr' : 'simulator',
     }
     
     # ### Traffic dataset
@@ -119,15 +131,55 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
     with h5py.File(h5_file_path, 'r') as h5file:
       STAs_arrivals_matrix = np.array([h5file[key][:] for key in h5file.keys()])
 
-    # # # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
-    STAs_arrivals_matrix = TrafficGenerator(
-        STA_NUMBER, validation_flag, traffic_type, traffic_load, L, per_STA_DCF_throughput_bianchi, 
-        EVENT_NUMBER = 15000 # Number of events considered for traffic generation
-        ) 
+    # # # # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
+    # STAs_arrivals_matrix = TrafficGenerator(
+    #         sim_config['STA_NUMBER'], 
+    #         sim_config['validation_flag'], 
+    #         sim_config['traffic_type'], 
+    #         sim_config['traffic_load'], 
+    #         sim_config['L'], 
+    #         sim_config['per_STA_DCF_throughput_bianchi'], 
+    #         sim_config['EVENT_NUMBER']# Number of events considered for traffic generation
+    #         ) 
+
+        # Create a Gym-compatible environment
+    def create_env():
+        CGs_STAs1, TxPowerMatrix1 = CG_creationTPC(sim_config['AP_NUMBER'], 
+                                                 sim_config['STA_NUMBER'], 
+                                                 sim_config['PN_DBM'], 
+                                                 sim_config['NSC'], 
+                                                 sim_config['NSS'], 
+                                                 sim_config['association'], 
+                                                 sim_config['channelMatrix'], 
+                                                 sim_config['MaxTxPower'], 
+                                                 CG_filter='off', TPC_method='PSO')    # TPC Optimization method: None, 'PSO', 'IPOPT', 'DE'
+        
+        simulator = MAPCsim(sim_config)  # new "MAPC simulator" object
+        simulator.simulation_system = 'CSR'                 # 'DCF' or 'CSR'
+        simulator.CGs_STAs = CGs_STAs1
+        simulator.TxPowerMatrix = TxPowerMatrix1
+        simulator.accessCategory = sim_config['EDCAaccessCategory']
+        return CustomEnv(sim_config, simulator)
+    
+
+    env = create_env()
+    obs, _ = env.reset(seed=seed, STAs_arrivals_matrix=STAs_arrivals_matrix)
+
+    terminated = False
+    # Load the trained model
+    loaded_model = A2C.load(os.path.join(learning_config['log_dir'], "best_model.zip"), env=env)
+    while not terminated:
+        action, _states = loaded_model.predict(obs, deterministic=False)
+        obs, _, terminated, _, _ = env.step(action)
+        # env.render()  # Optionally visualize the environment
+    
+    env.simulator.TrafficAnalysis()
+
+
 
     np.random.seed(seed)
     simDCF = MAPCsim(sim_config)  # new "MAPC simulator" object
-    simDCF.timestamp_to_stop = timestamp_to_stop
+    simDCF.timestamp_to_stop = sim_config['timestamp_to_stop']
     simDCF.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simDCF.simulation_system = 'DCF'
     simDCF.accessCategory = EDCAaccessCategory
@@ -137,7 +189,7 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
 
     np.random.seed(seed)
     simMNP = MAPCsim(sim_config)  # new "MAPC simulator" object
-    simMNP.timestamp_to_stop = timestamp_to_stop
+    simMNP.timestamp_to_stop = sim_config['timestamp_to_stop']
     simMNP.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simMNP.simulation_system = 'CSR'
     simMNP.scheduler = 'MNP'
@@ -149,7 +201,7 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
 
     np.random.seed(seed)
     simOP = MAPCsim(sim_config)  # new "MAPC simulator" object
-    simOP.timestamp_to_stop = timestamp_to_stop
+    simOP.timestamp_to_stop = sim_config['timestamp_to_stop']
     simOP.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simOP.simulation_system = 'CSR'
     simOP.scheduler = 'OP'
@@ -161,7 +213,7 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
 
     np.random.seed(seed)
     simTAT = MAPCsim(sim_config)  # new "MAPC simulator" object
-    simTAT.timestamp_to_stop = timestamp_to_stop
+    simTAT.timestamp_to_stop = sim_config['timestamp_to_stop']
     simTAT.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simTAT.simulation_system = 'CSR'
     simTAT.scheduler = 'TAT'
@@ -174,6 +226,8 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
     simTAT.Run()
 
     print(f'Iteration: {iter}')
+    print(f'RL_A2C 50th {np.percentile(env.simulator.delayvector,50)*1000}')
+    print(f'RL_A2C 99th {np.percentile(env.simulator.delayvector,99)*1000}')
     print(f'DCF 50th {np.percentile(simDCF.delayvector,50)*1000}')
     print(f'DCF 99th {np.percentile(simDCF.delayvector,99)*1000}')
     print(f'MNP 50th {np.percentile(simMNP.delayvector,50)*1000}')
