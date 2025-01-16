@@ -818,15 +818,8 @@ def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channel
                 raise ValueError(f'Invalid CG_filter value: {CG_filter}. Choose "on" or "off"')
         if discard_list[i] == True:
             comb_ok[i] = True
-
-    TxPowerMatrix = [row.tolist() for i, row in enumerate(TxPowerMatrixTemp) if comb_ok[i]==True]
-    CGs_STAs = [row.tolist() for i, row in enumerate(map_matrix) if comb_ok[i]==True]
-
-    # Validate that TxPowerMatrix and CGs_STAs have the same length
-    if len(TxPowerMatrix) != len(CGs_STAs):
-        raise ValueError('TxPowerMatrix and CGs_STAs have different lengths')
     
-    return CGs_STAs, TxPowerMatrix
+    return map_matrix, TxPowerMatrixTemp, comb_ok
 ####################################################################################################################
 
 # Compute of the probaility of a transmission slot, expected backoff and conditional collision probability
