@@ -59,7 +59,8 @@ class MAPCsim:
 
         # CSR-related
         self.CGs_STAs : list                                            # C-SR compatible groups of STAs
-        self.TxPowerMatrix : np.ndarray                                 # Transmission power matrix
+        self.TxPowerMatrix : list                                 # Transmission power matrix
+        self.comb_ok : np.ndarray                                 # Combination vector to indicate whether the combination is selected or not
         self.scheduler : str                            # scheduling: - Number of packets: 'MNP' 
                                                         #             - Oldest packet: 'OP'
                                                         #             - Random selection: 'Random'
@@ -305,7 +306,7 @@ class MAPCsim:
             P = self._MaxTxPower
         else:
             try:
-                idx = next(i for i, cg in enumerate(self.CGs_STAs) if cg == STA_rx)
+                idx = next(i for i, cg in enumerate(self.CGs_STAs) if np.array_equal(cg, STA_rx))
             except StopIteration:
                 raise ValueError('Not found') # STA_rx not found
             
