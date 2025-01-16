@@ -3,11 +3,12 @@ import h5py
 import numpy as np
 from Utils import *
 from MAPCsim import *
+from CustomEnv import * # my Custom environment
 from TrafficGenerator import TrafficGenerator
 from SaveOnBestTrainingRewardCallback import SaveOnBestTrainingRewardCallback
 
 # RL Model (e.g., PPO)
-from CustomEnv import * # my Custom environment
+import multiprocessing
 from stable_baselines3 import PPO, TD3, DQN, A2C
 from stable_baselines3.ppo import MlpPolicy, CnnPolicy, MultiInputPolicy 
 from stable_baselines3.a2c import MlpPolicy, CnnPolicy, MultiInputPolicy
@@ -16,6 +17,13 @@ from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.callbacks import BaseCallback, EvalCallback, CallbackList
+
+# For logging and monitoring
+import wandb
+from wandb.integration.sb3 import WandbCallback
+
+
+
 
 
 # From example notebook
@@ -31,7 +39,7 @@ def agent_training(sim_config, learning_config):
     # Create log dir
     os.makedirs(learning_config['log_dir'], exist_ok=True)
 
-    CGs_STAs1, TxPowerMatrix1 = CG_creationTPC(sim_config['AP_NUMBER'], 
+    map_matrix, TxPowerMatrixTemp, comb_ok = CG_creationTPC(sim_config['AP_NUMBER'], 
                                             sim_config['STA_NUMBER'], 
                                             sim_config['PN_DBM'], 
                                             sim_config['NSC'], 
@@ -47,8 +55,9 @@ def agent_training(sim_config, learning_config):
 
         simulator = MAPCsim(sim_config)  # new "MAPC simulator" object
         simulator.simulation_system = 'CSR'                 # 'DCF' or 'CSR'
-        simulator.CGs_STAs = CGs_STAs1         # Coordinated Spatial Reuse groups
-        simulator.TxPowerMatrix = TxPowerMatrix1  # Tx power matrix
+        simulator.CGs_STAs = map_matrix         # Entire groups matrix (all posible combinations)
+        simulator.TxPowerMatrix = TxPowerMatrixTemp  # Entire Tx power matrix (all posible combinations)
+        simulator.comb_ok = comb_ok # Combinations ok 
         simulator.accessCategory = sim_config['EDCAaccessCategory']  # Access category of devices in the network
         simulator.timestamp_to_stop = sim_config['learning_timestamp_to_stop'] # training episode duration
 
@@ -63,7 +72,16 @@ def agent_training(sim_config, learning_config):
     env = SubprocVecEnv([create_env for i in range(learning_config['parallel_envs'])])
     policy_kwargs = dict(net_arch=dict(pi=[128, 128], vf=[128, 128]))
 
-    # # Initialize PPO with fine-tuned parameters
+    # Logging run
+    logging_run = wandb.init(
+        project="sb3",
+        config=learning_config,
+        sync_tensorboard=True,  # auto-upload sb3's tensorboard metrics
+        monitor_gym=False,  # auto-upload the videos of agents playing the game
+        save_code=True,  # optional
+    ) 
+
+    # # # Initialize PPO with fine-tuned parameters
     # model = PPO(
     #     "MlpPolicy",
     #     # "MultiInputPolicy",
@@ -78,30 +96,42 @@ def agent_training(sim_config, learning_config):
     #     clip_range=0.2,
     #     ent_coef=0.01,
     #     policy_kwargs=policy_kwargs,
-    #     verbose=0,
+    #     verbose=2,
+    #     tensorboard_log=f"trained_models/tensorboard/{logging_run.id}",
     # )
 
     # model = DQN('MlpPolicy', env, verbose=0, max_grad_norm=0.5, buffer_size=50000, learning_starts=1000,
     #         gamma=0.99, target_update_interval=100, exploration_fraction=0.1, exploration_final_eps=0.01,
     #         batch_size=64, train_freq=4, learning_rate=1e-4)
 
-    model = PPO("MlpPolicy", env, verbose=0)
-    # model = PPO("MlpPolicy", env, verbose=0)
-    # model = PPO("MlpPolicy", env, verbose=0)
+    model = PPO("MlpPolicy", env, verbose=0, tensorboard_log=os.path.join(learning_config['log_dir'], "tensorboard", logging_run.id))
+    
 
-    # callback = SaveOnBestTrainingRewardCallback(check_freq=1000, log_dir=learning_config['log_dir'])
-
-    eval_callback = EvalCallback(env, best_model_save_path=learning_config['log_dir'],
-                             log_path=learning_config['log_dir'], eval_freq=500,
+    eval_callback = EvalCallback(env, best_model_save_path=os.path.join(learning_config['log_dir'], "models", logging_run.id),
+                             log_path=learning_config['log_dir'], eval_freq=1000//learning_config['parallel_envs'],
                              deterministic=False, render=False)
     
+    # Add WandbCallback
+    logging_callback = WandbCallback(
+        gradient_save_freq=1000,
+        model_save_path=os.path.join(learning_config['log_dir'], "models", logging_run.id),
+        model_save_freq=1000,
+        verbose=2,
+    )
+
+    callbacklist = CallbackList([logging_callback, eval_callback])
+
+
     # Train the model
     model.learn(
         total_timesteps=learning_config['num_episodes'],
-        callback=eval_callback
+        callback=callbacklist
     )
-    # Save the model after training
-    model.save(os.path.join(learning_config['log_dir'], "./final_model_delay/"))
+
+    logging_run.finish()
+
+    # # Save the model after training
+    # model.save(os.path.join(learning_config['log_dir'], "./final_model_delay/"))
 
 def simulate_iterations(sim, traffic_type, traffic_load, iter):
     """
@@ -148,9 +178,22 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
     # Compute the overheads
     preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads = OverheadsCalc(EDCAaccessCategory)
 
-    CGs_STAs, TxPowerMatrix = CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, 
-                                             association, channelMatrix, MaxTxPower, 
-                                             CG_filter='on', TPC_method='PSO')    # TPC Optimization method: None, 'PSO', 'IPOPT', 'DE'
+    map_matrix, TxPowerMatrixTemp, comb_ok = CG_creationTPC(AP_NUMBER, 
+                                                STA_NUMBER, 
+                                                PN_DBM, 
+                                                NSC, 
+                                                NSS, 
+                                                association, 
+                                                channelMatrix, 
+                                                MaxTxPower, 
+                                                CG_filter='on', TPC_method='PSO')    # TPC Optimization method: None, 'PSO', 'IPOPT', 'DE'
+    
+    TxPowerMatrix = [row.tolist() for i, row in enumerate(TxPowerMatrixTemp) if comb_ok[i]==True]
+    CGs_STAs = [row.tolist() for i, row in enumerate(map_matrix) if comb_ok[i]==True]
+
+    # Validate that TxPowerMatrix and CGs_STAs have the same length
+    if len(TxPowerMatrix) != len(CGs_STAs):
+        raise ValueError('TxPowerMatrix and CGs_STAs have different lengths')
                                               
     
     per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to_export, PN_DBM, NSC, NSS, TXOP_DURATION, 
@@ -181,11 +224,12 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
         'preTX_overheadsCSR': preTX_overheadsCSR,
         'DCFoverheads': DCFoverheads,
         'CSRoverheads': CSRoverheads,
-        'learning_timestamp_to_stop': 1, # seconds
+        'learning_timestamp_to_stop': 2, # seconds
         'training_flag': True,
         'timestamp_to_stop': 5, # seconds
         'CGs_STAs': CGs_STAs,
         'TxPowerMatrix': TxPowerMatrix,
+        'comb_ok': comb_ok,
         'L': L,
         'per_STA_DCF_throughput_bianchi': per_STA_DCF_throughput_bianchi,
         'EVENT_NUMBER': 30000, # Number of events considered for traffic generation
@@ -194,11 +238,12 @@ def simulate_iterations(sim, traffic_type, traffic_load, iter):
 
     # Learning Configuration
     learning_config = {
-        'log_dir': '/home/david/Documents/Papers/journal_ML_CSR/python Code/trained_models',
-        'parallel_envs': 8,
+        'log_dir': os.path.join(os.getcwd(),'trained_models'),
+        # 'parallel_envs': multiprocessing.cpu_count(),
+        'parallel_envs': 1,
         'num_episodes': 2E6,
         'simulator_attr' : 'simulator',
-    }
+    }  
     
     # Train the agent
     agent_training(sim_config, learning_config)
@@ -239,7 +284,7 @@ if __name__ == '__main__':
 
 
     # ### Load deployment data
-    h5file_deployments_path = os.path.join('/home/david/Documents/Papers/journal_ML_CSR/python Code/deployments datasets', sim, 'deployment_datasets.h5')
+    h5file_deployments_path = os.path.join(os.getcwd(),'deployments datasets', sim, 'deployment_datasets.h5')
     with h5py.File(h5file_deployments_path, 'r') as f:
         STA_matrix_save = f['STA_matrix_save'][:]
         channelMatrix_save = f['channelMatrix_save'][:]
