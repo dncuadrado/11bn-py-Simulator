@@ -78,6 +78,10 @@ class CustomEnv(gym.Env):
         # Check termination conditions
         terminated = truncated = bool(self.simulator.sim_timeline >= self.learning_timestamp_to_stop)
 
+        # Increase the episode number
+        if terminated:
+            self.episode_counter += 1
+
         # Optionally we can pass additional info, we are not using that for now
         info = {}
 
@@ -143,9 +147,6 @@ class CustomEnv(gym.Env):
 
         # Flag to control whether to forward the simulation or not. Used when the agent takes an action with no STAs to serve in the previous step           
         self.forward_flag = bool(True)
-
-        # Increase the episode counter
-        self.episode_counter += 1
 
         # Optionally we can pass additional info, we are not using that for now
         info = {}
