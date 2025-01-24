@@ -289,7 +289,7 @@ def checkSegmentIntersection(x1a1, x2a1, y1a1, y2a1, a2):
 ####################################################################################################################
 
 # Function to calculate channelMatrix and RSSI_dB_vector_to_export
-def GetChannelMatrix(MaxTxPower, CCA, AP_matrix, STA_matrix, SCENARIO_TYPE, walls, checkSegmentIntersection, Getloss):
+def GetChannelMatrix(MaxTxPower, CCA, AP_matrix, STA_matrix, SCENARIO_TYPE, walls):
     """
     Calculates the channel matrix and RSSI [dB] values for each AP-STA and AP-AP pairs. Validate RSSI between APs is above the CCA
 
@@ -342,7 +342,7 @@ def GetChannelMatrix(MaxTxPower, CCA, AP_matrix, STA_matrix, SCENARIO_TYPE, wall
     if np.min(AP_to_AP_RSSI_matrix) < CCA:
         raise ValueError('Scenario constraint: RSSI between APs is under the CCA threshold. All APs should be in the coverage area of the others')
 
-    return channelMatrix, RSSI_dB_vector_to_export
+    return channelMatrix
 ####################################################################################################################
 
 # Function to calculate the MCS, N_bps, and Rc for a given SINR value
@@ -503,7 +503,7 @@ def power_allocation(N, noise_power, H, P_max, NSC, NSS, TPC_method):
         ub = P_max * np.ones(N)  # Upper bound for power allocation
 
         # Use PSO with optimized swarm size and iterations
-        SWARM_SIZE = 10  # Reduced swarm size (can be tuned)
+        SWARM_SIZE = 20  # Reduced swarm size (can be tuned)
         MAX_ITER = 20   # Reduced number of iterations (can be tuned)
 
         def objective(P):
@@ -516,12 +516,10 @@ def power_allocation(N, noise_power, H, P_max, NSC, NSS, TPC_method):
             try:
                 sys.stdout = fnull
                 sys.stderr = fnull
-                # P_opt, _ = pso(objective, lb, ub, swarmsize=SWARM_SIZE, maxiter=MAX_ITER, debug=False, 
-                #        minfunc=1e-8, omega=0.9, phip=0.1, phig=0.1)
-                
+
                 P_opt, _ = pso(objective, lb, ub, ieqcons=[], f_ieqcons=None, args=(), kwargs={}, 
-                    swarmsize=SWARM_SIZE, omega=0.9, phip=0.1, phig=0.1, maxiter=MAX_ITER, 
-                    minstep=1e-8, minfunc=1e-8, debug=False)
+                    swarmsize=SWARM_SIZE, omega=0.5, phip=0.5, phig=0.5, maxiter=MAX_ITER, 
+                    minstep=1e-8, minfunc=1e-8, debug=False)  # minstep=1e-8, minfunc=1e-8
             finally:
                 sys.stdout = original_stdout
                 sys.stderr = original_stderr
@@ -762,7 +760,8 @@ def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channel
     TxPowerMatrixTemp = [np.full_like(row, MaxTxPower, dtype=float) if i<STA_NUMBER else np.full_like(row, np.nan, dtype=float) for i, row in enumerate(map_matrix)]
 
     # Other matrices initialization
-    datarate = [np.full_like(row, np.nan, dtype=float) for _, row in enumerate(map_matrix)]
+    datarateTemp = [np.zeros(len(row), dtype=float) for _, row in enumerate(map_matrix)]
+    datarate = np.zeros(len(map_matrix), dtype=float) # proportional transmission rate
     comb_ok = np.zeros(len(map_matrix), dtype=bool)
     discard_list = np.ones(len(map_matrix), dtype=bool)
 
@@ -794,14 +793,15 @@ def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channel
         for k, _ in enumerate(STAs):
             MCS, N_bps, Rc = MCS_cal_PER_001(SINR_db[k])
             if np.isnan(MCS):
-                datarate[i][k] = 0 #SINR under the threshold
+                datarateTemp[i][k] = 0 #SINR under the threshold
             else:
-                datarate[i][k] = NSC * N_bps * Rc * NSS / (12.8e-6 + 0.8e-6) # Datarate in bps
+                datarateTemp[i][k] = N_bps * Rc * NSS  # Number of bits to code a symbol
+                # datarateTemp[i][k] = NSC * N_bps * Rc * NSS / (12.8e-6 + 0.8e-6) # Datarate in bps
             
             # To filter out combinations using a specific criterium 
             if CG_filter == 'on': 
                 # if the datarate using CSR is lower than the datarate without CSR, discard the combination
-                if len(STAs) * datarate[i][k] >= datarate[STAs[k]]:
+                if len(STAs) * datarateTemp[i][k] >= datarateTemp[STAs[k]]:
                     continue
                 else:
                     # Discarding the rest of combs where this STAs appear
@@ -818,8 +818,9 @@ def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channel
                 raise ValueError(f'Invalid CG_filter value: {CG_filter}. Choose "on" or "off"')
         if discard_list[i] == True:
             comb_ok[i] = True
+            datarate[i] = np.prod(datarateTemp[i])
     
-    return map_matrix, TxPowerMatrixTemp, comb_ok
+    return map_matrix, TxPowerMatrixTemp, comb_ok, datarate
 ####################################################################################################################
 
 # Compute of the probaility of a transmission slot, expected backoff and conditional collision probability
@@ -887,7 +888,7 @@ def SimpleDCF_modelWithBEB(N, EDCAaccessCategory):
 ####################################################################################################################
 
 # Function to compute the throughput using Bianchi's model
-def Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to_export, 
+def Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, channelMatrix, MaxTxPower, 
                             PN_DBM, NSC, NSS, TXOP_DURATION, DCFoverheads, EDCAaccessCategory):
     """
     Computes the per-station throughput using Bianchi's model.
@@ -936,20 +937,28 @@ def Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to
     N_bps = np.zeros(STA_NUMBER)
     Rc = np.zeros(STA_NUMBER)
     
+    # Convert MaxTxPower from dBm to linear scale
+    MaxTxPower = 10 ** (MaxTxPower/10)
+
+    # Convert noise power from dBm to linear scale
+    noise_power = 10 ** (PN_DBM/10)
+
+
     # Loop through each STA
     for kk in range(STA_NUMBER):
         # Find the rows (APs) where STA kk is associated
         ap_indices = [ap_idx for ap_idx, ap_stas in enumerate(association) if kk in ap_stas]
-    
-        # Find the AP indices where STA kk is associated
-        # num_associated_stas = sum(len(association[ap_idx]) for ap_idx, ap_stas in enumerate(association) if kk + 1 in ap_stas)
+
+        H = channelMatrix[kk, ap_indices] # channel coefficient
+
+        # Compute the SINR 
+        SINR_db = 10 * np.log10(MaxTxPower * H / noise_power)
+
+        # Calculate the MCS
+        MCS[kk], N_bps[kk], Rc[kk] = MCS_cal_PER_001(SINR_db)  # MCS calculation
     
         # Probability of STA_kk being selected
         p_STA = 1 / (AP_NUMBER * len(association[ap_indices[0]]))
-        
-        # Calculate SINR and MCS
-        SINR_db = RSSI_dB_vector_to_export[kk, ap_indices] - PN_DBM  # SINR calculation
-        MCS[kk], N_bps[kk], Rc[kk] = MCS_cal_PER_001(SINR_db)  # MCS calculation
         
         if np.isnan(MCS[kk]):
             raise ValueError("Invalid MCS")
@@ -959,7 +968,7 @@ def Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to
         if rx_packets[kk] > 1024:
             raise ValueError("Impossible to transmit more than 1024 MSDUs")
         
-        # Throughput calculation following Bianchi's model
+        # Throughput calculation following Bianchi's model [Mbps]
         per_STA_DCF_throughput_bianchi[kk] = p_STA * ps * rx_packets[kk] * L / (1e6 * (pe * TE + ps * TXOP_DURATION + pc * Tcoll))
     
     return per_STA_DCF_throughput_bianchi
@@ -1028,6 +1037,7 @@ def Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, association, CGs_STAs, TxPower
     
     DL_throughput_CSR_bianchi = np.zeros(STA_NUMBER)
     for kk in range(STA_NUMBER):
+        # Calculate the throughput for each STA using Bianchi's model [Mbps]
         DL_throughput_CSR_bianchi[kk] = p_comb * ps_DL * L * np.sum(per_STA_rx_packets[kk]) / (1e6 * (pe_DL * Te + ps_DL * TXOP_DURATION + pc_DL * Tcoll))
         if DL_throughput_CSR_bianchi[kk] <= 0:
             raise ValueError('Throughput <= 0 is not allowed')
