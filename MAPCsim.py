@@ -61,6 +61,7 @@ class MAPCsim:
         self.CGs_STAs : list                                            # C-SR compatible groups of STAs
         self.TxPowerMatrix : list                                 # Transmission power matrix
         self.comb_ok : np.ndarray                                 # Combination vector to indicate whether the combination is selected or not
+        self.datarate : np.ndarray                                 # Vector that contains the proportional data rate per group
         self.scheduler : str                            # scheduling: - Number of packets: 'MNP' 
                                                         #             - Oldest packet: 'OP'
                                                         #             - Random selection: 'Random'
