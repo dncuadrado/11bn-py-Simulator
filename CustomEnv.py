@@ -3,7 +3,7 @@ import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
 from TrafficGenerator import TrafficGenerator
-from Utils import get_association, Throughput_DCF_bianchi, CG_creationTPC
+from Utils import get_association, Throughput_EDCA_bianchi, CG_creationTPC
 from DeploymentGenerator import deployment_generator
 
 from torch.distributions import Distribution 
@@ -98,9 +98,9 @@ class CustomEnv(gym.Env):
         if self.episode_counter == 5:
             AP_matrix, STA_matrix, self.sim_config['association'], self.sim_config['channelMatrix'] = deployment_generator(self.sim_config)
 
-            self.sim_config['per_STA_DCF_throughput_bianchi'] = Throughput_DCF_bianchi(self.sim_config['AP_NUMBER'], self.sim_config['STA_NUMBER'], self.sim_config['association'], self.sim_config['channelMatrix'], self.sim_config['MaxTxPower'],
+            self.sim_config['per_STA_EDCA_throughput_bianchi'] = Throughput_EDCA_bianchi(self.sim_config['AP_NUMBER'], self.sim_config['STA_NUMBER'], self.sim_config['association'], self.sim_config['channelMatrix'], self.sim_config['MaxTxPower'],
                                                             self.sim_config['PN_DBM'], self.sim_config['NSC'], self.sim_config['NSS'], self.sim_config['TXOP_DURATION'], 
-                                                            self.sim_config['DCFoverheads'], self.sim_config['EDCAaccessCategory'])
+                                                            self.sim_config['EDCAoverheads'], self.sim_config['EDCAaccessCategory'])
 
             map_matrix, TxPowerMatrixTemp, comb_ok, datarate = CG_creationTPC(self.sim_config['AP_NUMBER'], 
                                                         self.sim_config['STA_NUMBER'], 
@@ -125,7 +125,7 @@ class CustomEnv(gym.Env):
                         self.sim_config['traffic_type'], # Traffic type
                         self.sim_config['traffic_load'], # Traffic load
                         self.sim_config['L'], # Packet length
-                        self.sim_config['per_STA_DCF_throughput_bianchi'], # DCF throughput per STA                                    
+                        self.sim_config['per_STA_EDCA_throughput_bianchi'], # EDCA throughput per STA                                    
                         self.sim_config['EVENT_NUMBER']# Number of events considered for traffic generation
                         )  
 

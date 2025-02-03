@@ -91,7 +91,7 @@ if __name__ == '__main__':
     channelMatrix_save = np.empty((STA_NUMBER, AP_NUMBER, ITERATIONS))
 
     # Pre-allocate result arrays
-    per_STA_DCF_throughput_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
+    per_STA_EDCA_throughput_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
     DL_throughput_CSR_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
 
 

@@ -7,7 +7,7 @@ from tqdm import tqdm
 from Utils import *
 
 def TrafficGenerator(STA_NUMBER, validation_flag, traffic_type, traffic_load, L, 
-                     per_STA_DCF_throughput_bianchi, EVENT_NUMBER):
+                     per_STA_EDCA_throughput_bianchi, EVENT_NUMBER):
     """
     Generates a list of arrival times for each STA based on the specified traffic model.
     """
@@ -17,7 +17,7 @@ def TrafficGenerator(STA_NUMBER, validation_flag, traffic_type, traffic_load, L,
 
     if traffic_load in traffic_loads:
         C = traffic_loads[traffic_load]
-        traffic_generation_rate = C * np.min(per_STA_DCF_throughput_bianchi) * 1E6 / L  # in packets/s
+        traffic_generation_rate = C * np.min(per_STA_EDCA_throughput_bianchi) * 1E6 / L  # in packets/s
     elif traffic_load in ['30-60', '30-90', '30-120']:
         pass  # No need to set C or traffic_generation_rate for VR traffic
     else:
@@ -166,19 +166,19 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration, STA_matrix_sa
     channelMatrix = channelMatrix_save[:, :, iteration]
     RSSI_dB_vector_to_export = RSSI_dB_vector_to_export_save[:, :, iteration]
 
-    # Generate per-STA DCF throughput using your existing logic
+    # Generate per-STA EDCA throughput using your existing logic
     # Simulate necessary steps for the deployment
     association = AP_STA_Association(AP_NUMBER, STA_NUMBER, SCENARIO_TYPE)
-    _, _, DCFoverheads, _ = OverheadsCalc(EDCAaccessCategory)
+    _, _, EDCAoverheads, _ = OverheadsCalc(EDCAaccessCategory)
 
-    per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(
+    per_STA_EDCA_throughput_bianchi = Throughput_EDCA_bianchi(
         AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to_export, PN_DBM, Nsc, NSS, 
-        TXOP_DURATION, DCFoverheads, EDCAaccessCategory
+        TXOP_DURATION, EDCAoverheads, EDCAaccessCategory
     )
 
     # Generate traffic for the current iteration
     STAs_arrivals_matrix = TrafficGenerator(
-            STA_NUMBER, validation_flag, traffic_type, traffic_load, L, per_STA_DCF_throughput_bianchi, 
+            STA_NUMBER, validation_flag, traffic_type, traffic_load, L, per_STA_EDCA_throughput_bianchi, 
             EVENT_NUMBER = 150000
         )
     return STAs_arrivals_matrix

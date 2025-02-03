@@ -39,7 +39,7 @@ def TXpowerCalc(BW, NSS):
 def OverheadsCalc(EDCAaccessCategory):
     """
     Computes the needed overheads for the transmission process.
-    Returns: preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads
+    Returns: preTX_overheadsEDCA, preTX_overheadsCSR, EDCAoverheads, CSRoverheads
     """
     # Computes the needed overheads
     TIME_PREAMBLE_DATA = 100e-6
@@ -49,7 +49,7 @@ def OverheadsCalc(EDCAaccessCategory):
     TCTS = 48E-6
     TSIFS = 16e-6  # Shortest Interframe spacing (SIFS time)
     
-    # DIFS = 34e-6  # DCF Interframe spacing (DIFS time)
+    # DIFS = 34e-6  # EDCA Interframe spacing (DIFS time)
     TE = 9e-6  # Duration of a single backoff slot
     TBACK = 100E-6
 
@@ -60,15 +60,15 @@ def OverheadsCalc(EDCAaccessCategory):
     AIFSN = 2 if EDCAaccessCategory in ['VI', 'VO'] else 3
     AIFS = AIFSN * TE + TSIFS
 
-    # DCF Overheads
-    preTX_overheadsDCF = TRTS + TSIFS + TCTS + TSIFS + TIME_PREAMBLE_DATA
-    DCFoverheads = TRTS + TSIFS + TCTS + TSIFS + TIME_PREAMBLE_DATA + TSIFS + TBACK + AIFS + TE
+    # EDCA Overheads
+    preTX_overheadsEDCA = TRTS + TSIFS + TCTS + TSIFS + TIME_PREAMBLE_DATA
+    EDCAoverheads = TRTS + TSIFS + TCTS + TSIFS + TIME_PREAMBLE_DATA + TSIFS + TBACK + AIFS + TE
 
     # CSR Overheads
     preTX_overheadsCSR = TMAPC_ICF + TSIFS + TMAPC_ICR + TSIFS + TMAPC_TF + TSIFS + TIME_PREAMBLE_DATA
     CSRoverheads = TMAPC_ICF + TSIFS + TMAPC_ICR + TSIFS + TMAPC_TF + TSIFS + TIME_PREAMBLE_DATA + TSIFS + TBACK + AIFS + TE
 
-    return preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads
+    return preTX_overheadsEDCA, preTX_overheadsCSR, EDCAoverheads, CSRoverheads
 ####################################################################################################################
 
 # Function to calculate the AP-STA coordinates
@@ -824,10 +824,10 @@ def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channel
 ####################################################################################################################
 
 # Compute of the probaility of a transmission slot, expected backoff and conditional collision probability
-def SimpleDCF_modelWithBEB(N, EDCAaccessCategory):
+def SimpleEDCA_modelWithBEB(N, EDCAaccessCategory):
     """
     Computes the transmission probability (tau), expected backoff (EB), and collision probability (p) 
-    for a Distributed Coordination Function (DCF) with Binary Exponential Backoff (BEB).
+    for a Distributed Coordination Function (EDCA) with Binary Exponential Backoff (BEB).
     
     Args:
     N (int): Number of contending nodes
@@ -888,8 +888,8 @@ def SimpleDCF_modelWithBEB(N, EDCAaccessCategory):
 ####################################################################################################################
 
 # Function to compute the throughput using Bianchi's model
-def Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, channelMatrix, MaxTxPower, 
-                            PN_DBM, NSC, NSS, TXOP_DURATION, DCFoverheads, EDCAaccessCategory):
+def Throughput_EDCA_bianchi(AP_NUMBER, STA_NUMBER, association, channelMatrix, MaxTxPower, 
+                            PN_DBM, NSC, NSS, TXOP_DURATION, EDCAoverheads, EDCAaccessCategory):
     """
     Computes the per-station throughput using Bianchi's model.
     
@@ -902,11 +902,11 @@ def Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, channelMatrix, Ma
     NSC (int): Number of subcarriers
     NSS (int): Number of spatial streams
     TXOP_DURATION (float): TXOP duration
-    DCFoverheads (float): DCF overheads
+    EDCAoverheads (float): EDCA overheads
     EDCAaccessCategory (str): EDCA access category ('VI' or 'BE')
     
     Returns:
-    per_STA_DCF_throughput_bianchi (numpy array): Throughput for each station
+    per_STA_EDCA_throughput_bianchi (numpy array): Throughput for each station
     """
     
     # Constants
@@ -923,14 +923,14 @@ def Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, channelMatrix, Ma
     Tcoll = TRTS + TSIFS + TCTS + AIFS + TE  # Collision duration
     
     # Bianchi's parameters
-    tau, _, _ = SimpleDCF_modelWithBEB(AP_NUMBER, EDCAaccessCategory)
+    tau, _, _ = SimpleEDCA_modelWithBEB(AP_NUMBER, EDCAaccessCategory)
     pe = (1 - tau) ** AP_NUMBER
     ps = AP_NUMBER * tau * (1 - tau) ** (AP_NUMBER - 1)
     pc = 1 - pe - ps
     
     # Initialize throughput calculations
     rx_packets = np.zeros(STA_NUMBER)
-    per_STA_DCF_throughput_bianchi = np.zeros(STA_NUMBER)
+    per_STA_EDCA_throughput_bianchi = np.zeros(STA_NUMBER)
     
     # Initialize MCS parameters
     MCS = np.zeros(STA_NUMBER)
@@ -964,14 +964,14 @@ def Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, channelMatrix, Ma
             raise ValueError("Invalid MCS")
         
         # Calculate received packets
-        rx_packets[kk] = tx_packets(NSC, N_bps[kk], Rc[kk], NSS, TXOP_DURATION - DCFoverheads)
+        rx_packets[kk] = tx_packets(NSC, N_bps[kk], Rc[kk], NSS, TXOP_DURATION - EDCAoverheads)
         if rx_packets[kk] > 1024:
             raise ValueError("Impossible to transmit more than 1024 MSDUs")
         
         # Throughput calculation following Bianchi's model [Mbps]
-        per_STA_DCF_throughput_bianchi[kk] = p_STA * ps * rx_packets[kk] * L / (1e6 * (pe * TE + ps * TXOP_DURATION + pc * Tcoll))
+        per_STA_EDCA_throughput_bianchi[kk] = p_STA * ps * rx_packets[kk] * L / (1e6 * (pe * TE + ps * TXOP_DURATION + pc * Tcoll))
     
-    return per_STA_DCF_throughput_bianchi
+    return per_STA_EDCA_throughput_bianchi
 ####################################################################################################################
 
 # Function to compute the CSR throughput extending Bianchi's model 
@@ -1022,7 +1022,7 @@ def Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, association, CGs_STAs, TxPower
     L = 12e3  # Frame length (bytes)
     
     # DL calculation
-    tau_DL, _, prob_col_bianchi = SimpleDCF_modelWithBEB(AP_NUMBER, EDCAaccessCategory)
+    tau_DL, _, prob_col_bianchi = SimpleEDCA_modelWithBEB(AP_NUMBER, EDCAaccessCategory)
     
     pe_DL = (1 - tau_DL) ** AP_NUMBER
     ps_DL = AP_NUMBER * tau_DL * (1 - tau_DL) ** (AP_NUMBER - 1)

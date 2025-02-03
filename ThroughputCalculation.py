@@ -21,7 +21,7 @@ def throughput_calculation(sim_config, show_plot= None, iter=None):
         channelMatrix = channelMatrix_save[:,:,iter]
 
     # Overheads
-    preTX_overheadsDCF, preTX_overheadsCSR, DCFoverheads, CSRoverheads = OverheadsCalc(EDCAaccessCategory)
+    preTX_overheadsEDCA, preTX_overheadsCSR, EDCAoverheads, CSRoverheads = OverheadsCalc(EDCAaccessCategory)
 
     map_matrix, TxPowerMatrixTemp, comb_ok, _ = CG_creationTPC(AP_NUMBER, 
                                                 STA_NUMBER, 
@@ -40,14 +40,14 @@ def throughput_calculation(sim_config, show_plot= None, iter=None):
     if len(TxPowerMatrix) != len(CGs_STAs):
         raise ValueError('TxPowerMatrix and CGs_STAs have different lengths')
     
-    per_STA_DCF_throughput_bianchi = Throughput_DCF_bianchi(AP_NUMBER, STA_NUMBER, association, channelMatrix, sim_config['MaxTxPower'],
+    per_STA_EDCA_throughput_bianchi = Throughput_EDCA_bianchi(AP_NUMBER, STA_NUMBER, association, channelMatrix, sim_config['MaxTxPower'],
                                                             PN_DBM, NSC, NSS, TXOP_DURATION, 
-                                                            DCFoverheads, EDCAaccessCategory)
+                                                            EDCAoverheads, EDCAaccessCategory)
 
     DL_throughput_CSR_bianchi = Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, association, CGs_STAs, TxPowerMatrix, channelMatrix, PN_DBM, NSC, NSS, TXOP_DURATION,
                                                        CSRoverheads, EDCAaccessCategory)
                                                   
-    return per_STA_DCF_throughput_bianchi, DL_throughput_CSR_bianchi
+    return per_STA_EDCA_throughput_bianchi, DL_throughput_CSR_bianchi
 
 
 if __name__ == '__main__':
@@ -112,7 +112,7 @@ if __name__ == '__main__':
     ITERATIONS = 100
 
     # Pre-allocate result arrays
-    per_STA_DCF_throughput_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
+    per_STA_EDCA_throughput_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
     DL_throughput_CSR_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
 
     futures = []
@@ -126,18 +126,18 @@ if __name__ == '__main__':
         # Process results as they complete
         for i, future in enumerate(tqdm(futures, desc="Processing", unit=" iterations")):
             try:
-                dcf_throughput, csr_throughput = future.result()
-                per_STA_DCF_throughput_bianchi[i, :] = dcf_throughput
+                EDCA_throughput, csr_throughput = future.result()
+                per_STA_EDCA_throughput_bianchi[i, :] = EDCA_throughput
                 DL_throughput_CSR_bianchi[i, :] = csr_throughput
             except Exception as e:
                 print(f"Error in iteration {i}")
 
     # Aggregate Throughput
-    agg_thr_DCF_DL_vector = np.sum(per_STA_DCF_throughput_bianchi, axis=1)
+    agg_thr_EDCA_DL_vector = np.sum(per_STA_EDCA_throughput_bianchi, axis=1)
     agg_thr_cSR_bianchi = np.sum(DL_throughput_CSR_bianchi, axis=1)
 
     # Flatten the results for plotting
-    allSTA_DCF = per_STA_DCF_throughput_bianchi.flatten()
+    allSTA_EDCA = per_STA_EDCA_throughput_bianchi.flatten()
     allSTA_CSR = DL_throughput_CSR_bianchi.flatten()
 
     # End Timer and print elapsed time
@@ -152,9 +152,9 @@ if __name__ == '__main__':
 
     # Plotting ECDF for aggregate throughput
     plt.figure()
-    x_DCF, y_DCF = ecdf(agg_thr_DCF_DL_vector)
+    x_EDCA, y_EDCA = ecdf(agg_thr_EDCA_DL_vector)
     x_CSR, y_CSR = ecdf(agg_thr_cSR_bianchi)
-    plt.plot(x_DCF, y_DCF, label="DCF")
+    plt.plot(x_EDCA, y_EDCA, label="EDCA")
     plt.plot(x_CSR, y_CSR, label="CSR")
     plt.xlabel('Aggregate Throughput (Mbps)')
     plt.ylabel('Cumulative Distribution Function')
@@ -164,9 +164,9 @@ if __name__ == '__main__':
 
     # Plotting ECDF for per-STA throughput
     plt.figure()
-    x_STA_DCF, y_STA_DCF = ecdf(allSTA_DCF)
+    x_STA_EDCA, y_STA_EDCA = ecdf(allSTA_EDCA)
     x_STA_CSR, y_STA_CSR = ecdf(allSTA_CSR)
-    plt.plot(x_STA_DCF, y_STA_DCF, label="DCF")
+    plt.plot(x_STA_EDCA, y_STA_EDCA, label="EDCA")
     plt.plot(x_STA_CSR, y_STA_CSR, label="CSR")
     plt.xlabel('Per-STA Throughput (Mbps)')
     plt.ylabel('Cumulative Distribution Function')
@@ -183,7 +183,7 @@ if __name__ == '__main__':
     os.makedirs(output_folder, exist_ok=True)
 
     # # # Save the results in .npy
-    # # np.save(os.path.join(output_folder, "per_STA_DCF_throughput_bianchi.npy"), per_STA_DCF_throughput_bianchi)
+    # # np.save(os.path.join(output_folder, "per_STA_EDCA_throughput_bianchi.npy"), per_STA_EDCA_throughput_bianchi)
     # # np.save(os.path.join(output_folder, "DL_throughput_CSR_bianchi.npy"), DL_throughput_CSR_bianchi)
 
     # # Define file path
@@ -191,11 +191,11 @@ if __name__ == '__main__':
 
     # # Save data to HDF5 file
     # with h5py.File(h5file_path, 'w') as f:
-    #     f.create_dataset('per_STA_DCF_throughput_bianchi', data=per_STA_DCF_throughput_bianchi)
+    #     f.create_dataset('per_STA_EDCA_throughput_bianchi', data=per_STA_EDCA_throughput_bianchi)
     #     f.create_dataset('DL_throughput_CSR_bianchi', data=DL_throughput_CSR_bianchi)
 
     # # Optionally, save as CSV for readability
-    # np.savetxt(os.path.join(output_folder, "per_STA_DCF_throughput_bianchi.csv"), per_STA_DCF_throughput_bianchi, delimiter=",")
+    # np.savetxt(os.path.join(output_folder, "per_STA_EDCA_throughput_bianchi.csv"), per_STA_EDCA_throughput_bianchi, delimiter=",")
     # np.savetxt(os.path.join(output_folder, "DL_throughput_CSR_bianchi.csv"), DL_throughput_CSR_bianchi, delimiter=",")
 
 

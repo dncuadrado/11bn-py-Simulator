@@ -36,7 +36,7 @@ class MAPCsim:
         self._firstPosPosition : np.ndarray                                 # Stores the position of the first non-transmitted packet of each STA
 
         # Simulation-related
-        self.simulation_system : str                                      # Simulation system -> DCF or CSR
+        self.simulation_system : str                                      # Simulation system -> EDCA or CSR
         self.validation_flag = sim_config['validation_flag']                              # Validation flag -> 'yes' or 'no'
 
         # Backoff-related
@@ -52,9 +52,9 @@ class MAPCsim:
         # TXOP-related
         self._TXOPwinNumber : np.ndarray                                  # Number of TXOP wins for each AP
         self._TXOPcollision : np.ndarray                                  # Number of TXOP collisions for each AP
-        self.preTX_overheadsDCF = sim_config['preTX_overheadsDCF']                      # Amount of time per TXOP before the data transmission begins using DCF 
+        self.preTX_overheadsEDCA = sim_config['preTX_overheadsEDCA']                      # Amount of time per TXOP before the data transmission begins using EDCA 
         self.preTX_overheadsCSR = sim_config['preTX_overheadsCSR']                      # Amount of time per TXOP before the data transmission begins using CSR
-        self.DCFoverheads = sim_config['DCFoverheads']                                  # Total amount of DCF overheads 
+        self.EDCAoverheads = sim_config['EDCAoverheads']                                  # Total amount of EDCA overheads 
         self.CSRoverheads = sim_config['CSRoverheads']                                  # Total amount of CSR overheads
 
         # CSR-related
@@ -113,7 +113,7 @@ class MAPCsim:
         """
         Executes the backoff process.
         """
-        if  self.simulation_system == 'DCF':
+        if  self.simulation_system == 'EDCA':
             Tc = 56E-6 + 16E-6 + 48E-6 + self._AIFS + 9E-6;      # collision duration -----> Tc = RTS + SIFS + CTS + AIFS + Te
         elif self.simulation_system == 'CSR':
             Tc = 74.4E-6 + 16e-6 + 88E-6 + self._AIFS + 9e-6;      # collision duration -----> Tc = MAPC_ICF + SIFS + MAPC_ICR + AIFS + Te
@@ -194,16 +194,16 @@ class MAPCsim:
         if agent_decision is not None:
             STA_rx, APs = agent_decision
         else:
-            if self.simulation_system == 'DCF':
+            if self.simulation_system == 'EDCA':
                 if self.validation_flag == 'yes':
                     # TODO: Check!!!!!!!
                     # Round Robin scheduling for validation
                     if sum(self._firstPosPosition) == self.STA_NUMBER:
                         for k in range(self.AP_NUMBER):
-                            self.rrobin_DCF_group_selector[k][:] = [1] + [0] * (len(self._association[k]) - 1)
+                            self.rrobin_EDCA_group_selector[k][:] = [1] + [0] * (len(self._association[k]) - 1)
                     
-                    STA_rx = self._association[self.TXOPwinner][np.where(self.rrobin_DCF_group_selector[self.TXOPwinner] == 1)[0][0]]
-                    self.rrobin_DCF_group_selector[self.TXOPwinner] = np.roll(self.rrobin_DCF_group_selector[self.TXOPwinner], 1)
+                    STA_rx = self._association[self.TXOPwinner][np.where(self.rrobin_EDCA_group_selector[self.TXOPwinner] == 1)[0][0]]
+                    self.rrobin_EDCA_group_selector[self.TXOPwinner] = np.roll(self.rrobin_EDCA_group_selector[self.TXOPwinner], 1)
                 else:
                     # STA selection based on the oldest packet
                     STAidx = np.argmin(self._firstPosTimestamp[self._association[self.TXOPwinner]])
@@ -468,9 +468,9 @@ class MAPCsim:
             STA_rx, APs = self.SchedulingV1(agent_decision)
             
             # Pre-TX overheads and data transmission time calculation
-            if self.simulation_system == "DCF":
-                self.sim_timeline += self.preTX_overheadsDCF
-                data_tx_time = self._TXOP_DURATION - self.DCFoverheads
+            if self.simulation_system == "EDCA":
+                self.sim_timeline += self.preTX_overheadsEDCA
+                data_tx_time = self._TXOP_DURATION - self.EDCAoverheads
             else:
                 self.sim_timeline += self.preTX_overheadsCSR
                 data_tx_time = self._TXOP_DURATION - self.CSRoverheads
