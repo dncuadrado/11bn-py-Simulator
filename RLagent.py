@@ -34,9 +34,27 @@ import gymnasium as gym
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.results_plotter import load_results, ts2xy
 
+def create_env(sim_config, map_matrix, TxPowerMatrixTemp, comb_ok, datarate, monitor_gym=False):
+    # Creating the simulator instance  
 
+    simulator = MAPCsim(sim_config)  # new "MAPC simulator" object
+    simulator.simulation_system = 'CSR'                 # 'EDCA' or 'CSR'
+    simulator.CGs_STAs = map_matrix         # Entire groups matrix (all posible combinations)
+    simulator.TxPowerMatrix = TxPowerMatrixTemp  # Entire Tx power matrix (all posible combinations)
+    simulator.comb_ok = comb_ok # Combinations ok 
+    simulator.datarate = datarate # Data rate for each combination (proportional tx rate)
+    simulator.accessCategory = sim_config['EDCAaccessCategory']  # Access category of devices in the network
+    simulator.timestamp_to_stop = sim_config['learning_timestamp_to_stop'] # training episode duration
 
-def agent_training(sim_config, learning_config, iter_number=None):
+    # Creating the custom environment
+    env = CustomEnv(sim_config, simulator)  
+    # check_env(env)  # Check the environment
+    env.reset(seed=sim_config['seed'])
+    if monitor_gym:
+        env = Monitor(env, learning_config['log_dir'])  # Wrap the environment
+    return env
+
+def training(sim_config, learning_config, iter_number=None):
     """
     Simulates one iterations and returns the delay vectors for EDCA, MNP, OP, and TAT.
 
@@ -95,26 +113,11 @@ def agent_training(sim_config, learning_config, iter_number=None):
     # Create log dir
     os.makedirs(learning_config['log_dir'], exist_ok=True)
 
-    # Create a Gym-compatible environment
-    def create_env():
-        # Creating the simulator instance  
-
-        simulator = MAPCsim(sim_config)  # new "MAPC simulator" object
-        simulator.simulation_system = 'CSR'                 # 'EDCA' or 'CSR'
-        simulator.CGs_STAs = map_matrix         # Entire groups matrix (all posible combinations)
-        simulator.TxPowerMatrix = TxPowerMatrixTemp  # Entire Tx power matrix (all posible combinations)
-        simulator.comb_ok = comb_ok # Combinations ok 
-        simulator.datarate = datarate # Data rate for each combination
-        simulator.accessCategory = sim_config['EDCAaccessCategory']  # Access category of devices in the network
-        simulator.timestamp_to_stop = sim_config['learning_timestamp_to_stop'] # training episode duration
-
-        # Creating the custom environment
-        env = CustomEnv(sim_config, simulator)  
-        # check_env(env)  # Check the environment
-        env = Monitor(env, learning_config['log_dir'])  # Wrap the environment
-        return env
-
-    env = make_vec_env(create_env, n_envs=learning_config['parallel_envs'], vec_env_cls=SubprocVecEnv)   # vec_env_cls = DummyVecEnv or SubprocVecEnv
+    env = make_vec_env(
+    lambda: create_env(sim_config, map_matrix, TxPowerMatrixTemp, comb_ok, datarate, monitor_gym=True), 
+    n_envs=learning_config['parallel_envs'], 
+    vec_env_cls=SubprocVecEnv   # vec_env_cls = DummyVecEnv or SubprocVecEnv
+    )
 
     policy_kwargs = dict(net_arch=dict(pi=[128, 128], vf=[128, 128]))
 
@@ -155,6 +158,26 @@ def agent_training(sim_config, learning_config, iter_number=None):
     model.save(os.path.join(learning_config['log_dir'], "models", logging_run.id, "final_model.zip"))
 
     logging_run.finish()
+
+
+def evaluation(map_matrix, TxPowerMatrixTemp, comb_ok, datarate, STAs_arrivals_matrix, sim_config, learning_config, model):
+        # Create a Gym-compatible environment
+
+    
+    # env = make_vec_env(create_env, n_envs=learning_config['parallel_envs'], vec_env_cls=DummyVecEnv)   # vec_env_cls = DummyVecEnv or SubprocVecEnv
+    env = create_env(sim_config, map_matrix, TxPowerMatrixTemp, comb_ok, datarate, monitor_gym=False)
+    obs, _ = env.reset(seed=sim_config['seed'], STAs_arrivals_matrix=STAs_arrivals_matrix)
+
+    terminated = False
+
+    # Load the trained model
+    loaded_model = MaskablePPO.load(os.path.join(learning_config['log_dir'], "models", model,  "final_model.zip"), env=env)
+    while not terminated:
+        action_masks = env.action_masks()
+        action, _states = loaded_model.predict(obs, action_masks=action_masks, deterministic=True)
+        obs, _, terminated, _, _ = env.step(action)
+
+    return env
 
 
 
@@ -228,11 +251,13 @@ if __name__ == '__main__':
     # Learning Configuration
     learning_config = {
         'log_dir': os.path.join(os.getcwd(),'trained_models'),
-        'parallel_envs': 1,
+        'parallel_envs': 8,
         'num_episodes': 4E6,
         'simulator_attr' : 'simulator',
     }  
     
     # Simulate the iterations
-    agent_training(sim_config, learning_config, iter_number=0)
+    training(sim_config, learning_config, iter_number=0)
+
+
 
