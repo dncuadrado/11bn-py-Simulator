@@ -42,7 +42,7 @@ def simulate_iterations(sim_config, learning_config, iter_number=None):
 
     Parameters:
     sim (str): Simulation identifier.
-    traffic_type (str): Type of traffic (e.g., 'Poisson', 'Bursty', 'VR').
+    traffic_type (str): Type of traffic (e.g., 'Poisson', 'Bursty', 'CBR').
     traffic_load (str): Load of the traffic (e.g., 'low', 'medium', 'high').
     iter_number (int): Number of the current iteration.
     STA_matrix_save (np.ndarray): Pre-saved STA matrix for all iter_number.
@@ -53,10 +53,10 @@ def simulate_iterations(sim_config, learning_config, iter_number=None):
     np.ndarray, np.ndarray, np.ndarray, np.ndarray: delay vector for EDCA, MNP, OP, and TAT.
     """
 
-    sim_config['EDCAaccessCategory'] = {'Poisson': 'BE', 'Bursty': 'BE', 'VR': 'VI'}.get(sim_config['traffic_type'], None)
+    sim_config['EDCAaccessCategory'] = {'Poisson': 'BE', 'Bursty': 'BE', 'CBR': 'VI'}.get(sim_config['traffic_type'], None)
     # Check if the traffic type is valid
     if sim_config['EDCAaccessCategory'] is None:
-        raise ValueError(f"Invalid traffic type: {sim_config['traffic_type']}. Valid types are 'Poisson', 'Bursty', 'VR'.")
+        raise ValueError(f"Invalid traffic type: {sim_config['traffic_type']}. Valid types are 'Poisson', 'Bursty', 'CBR'.")
 
 
     # Deployment-dependent data
@@ -239,13 +239,6 @@ if __name__ == "__main__":
     ###### Input parameters
     validation_flag = 'no'
 
-    # traffic_types = ['Poisson', 'Bursty', 'VR']
-    # traffic_loads = {
-    #     'Poisson': ['low', 'medium', 'high'],
-    #     'Bursty': ['low', 'medium', 'high'],
-    #     'VR': ['30-60', '30-90', '30-120']
-    # }
-
     traffic_types = ['Bursty']
     traffic_loads = {
         'Bursty': ['high']
@@ -289,7 +282,7 @@ if __name__ == "__main__":
     traffic_profiles = {
         'A' : {'model': 'Poisson', 'bitrate' : 100, 'latency': 1E-4},
         'B' : {'model': 'Bursty', 'bitrate' : 50, 'latency': 2E-4},
-        'C' : {'model': 'VR', 'bitrate' : 25, 'latency': 5E-4}
+        'C' : {'model': 'CBR', 'bitrate' : 25, 'latency': 5E-4}
     }
 
     

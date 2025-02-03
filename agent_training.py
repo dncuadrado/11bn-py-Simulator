@@ -42,7 +42,7 @@ def agent_training(sim_config, learning_config, iter_number=None):
 
     Parameters:
     sim (str): Simulation identifier.
-    traffic_type (str): Type of traffic (e.g., 'Poisson', 'Bursty', 'VR').
+    traffic_type (str): Type of traffic (e.g., 'Poisson', 'Bursty', 'CBR').
     traffic_load (str): Load of the traffic (e.g., 'low', 'medium', 'high').
     iter_number (int): Number of the current iteration.
     STA_matrix_save (np.ndarray): Pre-saved STA matrix for all iter_number.
@@ -54,10 +54,10 @@ def agent_training(sim_config, learning_config, iter_number=None):
     """
 
 
-    sim_config['EDCAaccessCategory'] = {'Poisson': 'BE', 'Bursty': 'BE', 'VR': 'VI'}.get(sim_config['traffic_type'], None)
+    sim_config['EDCAaccessCategory'] = {'Poisson': 'BE', 'Bursty': 'BE', 'CBR': 'VI'}.get(sim_config['traffic_type'], None)
     # Check if the traffic type is valid
     if sim_config['EDCAaccessCategory'] is None:
-        raise ValueError(f"Invalid traffic type: {sim_config['traffic_type']}. Valid types are 'Poisson', 'Bursty', 'VR'.")
+        raise ValueError(f"Invalid traffic type: {sim_config['traffic_type']}. Valid types are 'Poisson', 'Bursty', 'CBR'.")
 
     # Deployment-dependent data
     AP_matrix, STA_matrix, sim_config['association'], sim_config['channelMatrix'] = deployment_generator(sim_config)

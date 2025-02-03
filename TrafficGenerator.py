@@ -19,7 +19,7 @@ def TrafficGenerator(STA_NUMBER, validation_flag, traffic_type, traffic_load, L,
         C = traffic_loads[traffic_load]
         traffic_generation_rate = C * np.min(per_STA_EDCA_throughput_bianchi) * 1E6 / L  # in packets/s
     elif traffic_load in ['30-60', '30-90', '30-120']:
-        pass  # No need to set C or traffic_generation_rate for VR traffic
+        pass  # No need to set C or traffic_generation_rate for CBR traffic
     else:
         raise ValueError("Invalid traffic load specified.")
 
@@ -30,8 +30,8 @@ def TrafficGenerator(STA_NUMBER, validation_flag, traffic_type, traffic_load, L,
         STAs_arrivals_matrix = poisson_fixed_events(STA_NUMBER, validation_flag, EVENT_NUMBER, traffic_generation_rate)
     elif traffic_type == 'Bursty':
         STAs_arrivals_matrix = generate_burst_traffic(STA_NUMBER, EVENT_NUMBER, traffic_generation_rate)
-    elif traffic_type == 'VR':
-        STAs_arrivals_matrix = generate_vr_traffic(STA_NUMBER, traffic_load, L)
+    elif traffic_type == 'CBR':
+        STAs_arrivals_matrix = generate_CBR_traffic(STA_NUMBER, traffic_load, L)
     else:
         raise ValueError("Invalid traffic type specified.")
 
@@ -119,9 +119,9 @@ def generate_burst_traffic(STA_NUMBER, EVENT_NUMBER, traffic_generation_rate):
 
     return STAs_arrivals_matrix
 
-def generate_vr_traffic(STA_NUMBER, traffic_load, L):
+def generate_CBR_traffic(STA_NUMBER, traffic_load, L):
     """
-    Generate VR traffic arrivals for each STA.
+    Generate CBR traffic arrivals for each STA.
     """
     bitrate, fps = map(float, traffic_load.split('-'))
     frame_interval = 1 / fps
@@ -191,11 +191,11 @@ if __name__ == "__main__":
     ###### Input parameters
     validation_flag = 'no'
     EDCAaccessCategory = 'VI'
-    traffic_types = ['Poisson', 'Bursty', 'VR']
+    traffic_types = ['Poisson', 'Bursty', 'CBR']
     traffic_loads = {
         'Poisson': ['low', 'medium', 'high'],
         'Bursty': ['low', 'medium', 'high'],
-        'VR': ['30-60', '30-90', '30-120']
+        'CBR': ['30-60', '30-90', '30-120']
     }
 
     # Scenario-related

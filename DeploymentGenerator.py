@@ -51,7 +51,7 @@ if __name__ == '__main__':
     ###### Input parameters
 
     # Simulation parameters
-    traffic_type = 'VR'
+    traffic_type = 'CBR'
     traffic_load = '30-60'
     EDCAaccessCategory = 'VI'
 
@@ -95,7 +95,7 @@ if __name__ == '__main__':
     DL_throughput_CSR_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
 
 
-    EDCAaccessCategory = 'VI' if traffic_type == 'VR' else 'BE'
+    EDCAaccessCategory = 'VI' if traffic_type == 'CBR' else 'BE'
 
     # Simulation Configuration
     sim_config = {
