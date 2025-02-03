@@ -186,12 +186,6 @@ def evaluation(map_matrix, TxPowerMatrixTemp, comb_ok, datarate, STAs_arrivals_m
 
 if __name__ == '__main__':
 
-    ###### Input parameters
-    validation_flag = 'no'
-    traffic_type = 'Bursty'
-    traffic_load = 'high'
-
-
 
     # Scenario-related
     AP_NUMBER = 4
@@ -232,9 +226,6 @@ if __name__ == '__main__':
         'GRID_VALUE': GRID_VALUE,
         'walls': walls,
         'MaxTxPower': MaxTxPower,
-        'traffic_type': traffic_type,
-        'traffic_load' : traffic_load,
-        'validation_flag': 'no',
         'TXOP_DURATION': TXOP_DURATION,
         'PN_DBM': PN_DBM,
         'CCA': CCA,

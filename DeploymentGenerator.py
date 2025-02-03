@@ -108,7 +108,6 @@ if __name__ == '__main__':
         'traffic_type': traffic_type,
         'traffic_load' : traffic_load,
         'EDCAaccessCategory': EDCAaccessCategory,
-        'validation_flag': 'no',
         'TXOP_DURATION': TXOP_DURATION,
         'PN_DBM': PN_DBM,
         'CCA': CCA,

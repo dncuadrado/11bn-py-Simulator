@@ -6,7 +6,7 @@ from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
 from Utils import *
 
-def TrafficGenerator(STA_NUMBER, validation_flag, traffic_type, traffic_load, L, 
+def TrafficGenerator(STA_NUMBER, traffic_type, traffic_load, L, 
                      per_STA_EDCA_throughput_bianchi, EVENT_NUMBER):
     """
     Generates a list of arrival times for each STA based on the specified traffic model.
@@ -27,7 +27,7 @@ def TrafficGenerator(STA_NUMBER, validation_flag, traffic_type, traffic_load, L,
 
     # Traffic type selection
     if traffic_type == 'Poisson':
-        STAs_arrivals_matrix = poisson_fixed_events(STA_NUMBER, validation_flag, EVENT_NUMBER, traffic_generation_rate)
+        STAs_arrivals_matrix = poisson_fixed_events(STA_NUMBER, EVENT_NUMBER, traffic_generation_rate)
     elif traffic_type == 'Bursty':
         STAs_arrivals_matrix = generate_burst_traffic(STA_NUMBER, EVENT_NUMBER, traffic_generation_rate)
     elif traffic_type == 'CBR':
@@ -37,7 +37,7 @@ def TrafficGenerator(STA_NUMBER, validation_flag, traffic_type, traffic_load, L,
 
     return STAs_arrivals_matrix
 
-def poisson_fixed_events(STA_NUMBER, validation_flag, EVENT_NUMBER, traffic_generation_rate):
+def poisson_fixed_events(STA_NUMBER, EVENT_NUMBER, traffic_generation_rate):
     """
     Generate arrival times using a Poisson process for each STA.
     """
@@ -45,14 +45,7 @@ def poisson_fixed_events(STA_NUMBER, validation_flag, EVENT_NUMBER, traffic_gene
     for _ in range(STA_NUMBER):
         # Generate exponential inter-arrival times
         w = np.random.exponential(scale=1/traffic_generation_rate, size=EVENT_NUMBER)
-        t = np.cumsum(w)
-
-        # Validation flag handling
-        if validation_flag == 'yes':
-            arrivals = t[:-1]  # Ensure a packet at t=0
-        else:
-            arrivals = t
-
+        arrivals = np.cumsum(w)
         STAs_arrivals_matrix.append(arrivals)
 
         # # Plot the exponential inter-arrival times histogram
@@ -178,7 +171,7 @@ def simulate_iteration(sim, traffic_type, traffic_load, iteration, STA_matrix_sa
 
     # Generate traffic for the current iteration
     STAs_arrivals_matrix = TrafficGenerator(
-            STA_NUMBER, validation_flag, traffic_type, traffic_load, L, per_STA_EDCA_throughput_bianchi, 
+            STA_NUMBER, traffic_type, traffic_load, L, per_STA_EDCA_throughput_bianchi, 
             EVENT_NUMBER = 150000
         )
     return STAs_arrivals_matrix
@@ -189,7 +182,6 @@ if __name__ == "__main__":
     start_time = time.time()
 
     ###### Input parameters
-    validation_flag = 'no'
     EDCAaccessCategory = 'VI'
     traffic_types = ['Poisson', 'Bursty', 'CBR']
     traffic_loads = {

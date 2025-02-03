@@ -37,7 +37,6 @@ class MAPCsim:
 
         # Simulation-related
         self.simulation_system : str                                      # Simulation system -> EDCA or CSR
-        self.validation_flag = sim_config['validation_flag']                              # Validation flag -> 'yes' or 'no'
 
         # Backoff-related
         self.TXOPwinner : int                                              # Winner of the TXOP
@@ -195,19 +194,9 @@ class MAPCsim:
             STA_rx, APs = agent_decision
         else:
             if self.simulation_system == 'EDCA':
-                if self.validation_flag == 'yes':
-                    # TODO: Check!!!!!!!
-                    # Round Robin scheduling for validation
-                    if sum(self._firstPosPosition) == self.STA_NUMBER:
-                        for k in range(self.AP_NUMBER):
-                            self.rrobin_EDCA_group_selector[k][:] = [1] + [0] * (len(self._association[k]) - 1)
-                    
-                    STA_rx = self._association[self.TXOPwinner][np.where(self.rrobin_EDCA_group_selector[self.TXOPwinner] == 1)[0][0]]
-                    self.rrobin_EDCA_group_selector[self.TXOPwinner] = np.roll(self.rrobin_EDCA_group_selector[self.TXOPwinner], 1)
-                else:
-                    # STA selection based on the oldest packet
-                    STAidx = np.argmin(self._firstPosTimestamp[self._association[self.TXOPwinner]])
-                    STA_rx = np.atleast_1d(self._association[self.TXOPwinner][STAidx])
+                # STA selection based on the oldest packet
+                STAidx = np.argmin(self._firstPosTimestamp[self._association[self.TXOPwinner]])
+                STA_rx = np.atleast_1d(self._association[self.TXOPwinner][STAidx])
 
                 APs = np.atleast_1d(self.TXOPwinner)
             else:
@@ -252,36 +241,28 @@ class MAPCsim:
                             delta_nt if len(u) == 1 else delta_nt + self.beta * (Delta_nt - self.alpha * delta_nt)
                         )
 
-                if self.validation_flag == 'yes':
-                    if self.rrobin_CSR_group_selector == 0:
-                        self.rrobin_CSR_group_selector = np.zeros(len(self.CGs_STAs))
-                        self.rrobin_CSR_group_selector[0] = 1
+                if self.scheduler == 'MNP':  # Maximum number of packets
+                    maxScore = max(ScorePackets)
+                    idx_score = np.argmax(ScorePackets)
+                    equalScoreIdx = [i for i, score in enumerate(ScorePackets) if score == maxScore]
 
-                    idx_score = np.where(self.rrobin_CSR_group_selector == 1)[0][0]
-                    self.rrobin_CSR_group_selector = np.roll(self.rrobin_CSR_group_selector, 1)
-                else:
-                    if self.scheduler == 'MNP':  # Maximum number of packets
-                        maxScore = max(ScorePackets)
-                        idx_score = np.argmax(ScorePackets)
-                        equalScoreIdx = [i for i, score in enumerate(ScorePackets) if score == maxScore]
+                    if len(equalScoreIdx) != 1:
+                        idx_score = equalScoreIdx[np.argmin([ScoreTimeOldest[i] for i in equalScoreIdx])]
+                elif self.scheduler == 'OP': # Oldest packet
+                    minOldestScore = min(ScoreTimeOldest)
+                    idx_score = np.argmin(ScoreTimeOldest)
+                    equalScoreIdx = [i for i, score in enumerate(ScoreTimeOldest) if score == minOldestScore]
 
-                        if len(equalScoreIdx) != 1:
-                            idx_score = equalScoreIdx[np.argmin([ScoreTimeOldest[i] for i in equalScoreIdx])]
-                    elif self.scheduler == 'OP': # Oldest packet
-                        minOldestScore = min(ScoreTimeOldest)
-                        idx_score = np.argmin(ScoreTimeOldest)
-                        equalScoreIdx = [i for i, score in enumerate(ScoreTimeOldest) if score == minOldestScore]
-
-                        if len(equalScoreIdx) != 1:
-                            idx_score = equalScoreIdx[np.argmax([ScorePackets[i] for i in equalScoreIdx])]
-                    elif self.scheduler == 'Random':
-                        idx_score = np.random.randint(len(uni))
-                    elif self.scheduler == 'TAT': # Traffic-Alignment Tracker
-                        maxScore = max(ScoreTAT)
-                        idx_score = np.argmax(ScoreTAT)
-                        equalScoreIdx = [i for i, score in enumerate(ScoreTAT) if score == maxScore]
-                        if len(equalScoreIdx) != 1:
-                            idx_score = equalScoreIdx[np.argmax([ScorePackets[i] for i in equalScoreIdx])]
+                    if len(equalScoreIdx) != 1:
+                        idx_score = equalScoreIdx[np.argmax([ScorePackets[i] for i in equalScoreIdx])]
+                elif self.scheduler == 'Random':
+                    idx_score = np.random.randint(len(uni))
+                elif self.scheduler == 'TAT': # Traffic-Alignment Tracker
+                    maxScore = max(ScoreTAT)
+                    idx_score = np.argmax(ScoreTAT)
+                    equalScoreIdx = [i for i, score in enumerate(ScoreTAT) if score == maxScore]
+                    if len(equalScoreIdx) != 1:
+                        idx_score = equalScoreIdx[np.argmax([ScorePackets[i] for i in equalScoreIdx])]
 
                 STA_rx = uni[idx_score]
 
@@ -337,17 +318,14 @@ class MAPCsim:
             # packets finally transmitted
             tx_vector_pos = tx_vector_pos[:tx_Packets[k]]
 
-            if self.validation_flag == 'yes':
-                temp_elapsed_time[k] = data_tx_time
-            else:
-                # received packets
-                received_packets = np.random.binomial(tx_Packets[k], 1 - Pe)
-                # lost packets (if any)
-                lost_packets = np.random.choice(tx_vector_pos, int(tx_Packets[k] - received_packets), replace=False)
-                # properly received packets, considering the ones lost (if any)
-                rx_vector_pos = [p for p in tx_vector_pos if p not in lost_packets]
-                # elapsed time due to the transmission
-                temp_elapsed_time[k] = elapsed_time_tx(self._NSC, N_bps, Rc, self._NSS, tx_Packets[k])
+            # received packets
+            received_packets = np.random.binomial(tx_Packets[k], 1 - Pe)
+            # lost packets (if any)
+            lost_packets = np.random.choice(tx_vector_pos, int(tx_Packets[k] - received_packets), replace=False)
+            # properly received packets, considering the ones lost (if any)
+            rx_vector_pos = [p for p in tx_vector_pos if p not in lost_packets]
+            # elapsed time due to the transmission
+            temp_elapsed_time[k] = elapsed_time_tx(self._NSC, N_bps, Rc, self._NSS, tx_Packets[k])
             # Update STA
             self.UpdateSTA(sta, rx_vector_pos, temp_elapsed_time[k])
 

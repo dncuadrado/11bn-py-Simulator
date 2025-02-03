@@ -14,6 +14,7 @@ from Utils import *
 from MAPCsim import *
 from TrafficGenerator import TrafficGenerator
 from DeploymentGenerator import deployment_generator
+import RLagent as RLagent
 
 
 
@@ -100,7 +101,6 @@ def simulate_iterations(sim_config, learning_config, iter_number=None):
     # # # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
     STAs_arrivals_matrix = TrafficGenerator(
             sim_config['STA_NUMBER'], 
-            sim_config['validation_flag'], 
             sim_config['traffic_type'], 
             sim_config['traffic_load'], 
             sim_config['L'], 
@@ -109,43 +109,9 @@ def simulate_iterations(sim_config, learning_config, iter_number=None):
             ) 
 
 
-    # Create a Gym-compatible environment
-    def create_env():
-        # Creating the simulator instance  
-
-        simulator = MAPCsim(sim_config)  # new "MAPC simulator" object
-        simulator.simulation_system = 'CSR'                 # 'EDCA' or 'CSR'
-        simulator.CGs_STAs = map_matrix         # Entire groups matrix (all posible combinations)
-        simulator.TxPowerMatrix = TxPowerMatrixTemp  # Entire Tx power matrix (all posible combinations)
-        simulator.comb_ok = comb_ok # Combinations ok 
-        simulator.datarate = datarate # Data rate for each combination (proportional tx rate)
-        simulator.accessCategory = sim_config['EDCAaccessCategory']  # Access category of devices in the network
-        simulator.timestamp_to_stop = sim_config['learning_timestamp_to_stop'] # training episode duration
-
-        # Creating the custom environment
-        env = CustomEnv(sim_config, simulator)  
-        # check_env(env)  # Check the environment
-        env.reset(seed=sim_config['seed'])
-        # env = Monitor(env, learning_config['log_dir'])  # Wrap the environment
-        return env
-    
-    # env = make_vec_env(create_env, n_envs=learning_config['parallel_envs'], vec_env_cls=DummyVecEnv)   # vec_env_cls = DummyVecEnv or SubprocVecEnv
-    env = create_env()
-    obs, _ = env.reset(seed=sim_config['seed'], STAs_arrivals_matrix=STAs_arrivals_matrix)
-
-    terminated = False
-
-    # Load the trained model
-    loaded_model = MaskablePPO.load(os.path.join(learning_config['log_dir'], "models/qxm9k1l9/final_model.zip"), env=env)
-    while not terminated:
-        action_masks = env.action_masks()
-        action, _states = loaded_model.predict(obs, action_masks=action_masks, deterministic=True)
-        obs, _, terminated, _, _ = env.step(action)
-        # env.render()  # Optionally visualize the environment
-
+    model = 'l9dthv3v'
+    env = RLagent.evaluation(map_matrix, TxPowerMatrixTemp, comb_ok, datarate, STAs_arrivals_matrix, sim_config, learning_config, model)
     env.simulator.TrafficAnalysis()
-
-
 
     np.random.seed(sim_config['seed'])
     simEDCA = MAPCsim(sim_config)  # new "MAPC simulator" object
@@ -236,15 +202,6 @@ if __name__ == "__main__":
     # Start Timer
     start_time = time.time()
 
-    ###### Input parameters
-    validation_flag = 'no'
-
-    traffic_types = ['Bursty']
-    traffic_loads = {
-        'Bursty': ['high']
-    }
-
-
     # Scenario-related
     AP_NUMBER = 4
     STA_NUMBER = 16
@@ -280,10 +237,12 @@ if __name__ == "__main__":
     output_dir = os.path.join(os.getcwd(), 'Results/Simulation')
     
     traffic_profiles = {
-        'A' : {'model': 'Poisson', 'bitrate' : 100, 'latency': 1E-4},
-        'B' : {'model': 'Bursty', 'bitrate' : 50, 'latency': 2E-4},
-        'C' : {'model': 'CBR', 'bitrate' : 25, 'latency': 5E-4}
+        'A' : {'model': 'Poisson', 'load' : 100, 'latency': 1E-4},
+        'B' : {'model': 'Bursty', 'load' : 50, 'latency': 2E-4},
+        'C' : {'model': 'CBR', 'load' : 25, 'latency': 5E-4}
     }
+
+    traffic_profile_perSTA = np.random.choice(['A','B','C'], size=STA_NUMBER).tolist()
 
     
     # Simulation Configuration
@@ -294,7 +253,6 @@ if __name__ == "__main__":
         'GRID_VALUE': GRID_VALUE,
         'walls': walls,
         'MaxTxPower': MaxTxPower,
-        'validation_flag': 'no',
         'TXOP_DURATION': TXOP_DURATION,
         'PN_DBM': PN_DBM,
         'CCA': CCA,
@@ -318,27 +276,26 @@ if __name__ == "__main__":
 
     # Run simulations with progress bar
     max_workers = 1  # Adjust the number of workers as needed
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        for traffic_type in traffic_types:
-            sim_config['traffic_type'] = traffic_type
-            for traffic_load in traffic_loads[traffic_type]:
-                sim_config['traffic_load'] = traffic_load
-                futures = [
-                    executor.submit(
-                        simulate_iterations, sim_config, learning_config, i
-                    )
-                    for i in range(ITERATIONS)
-                ]
-                for i, future in enumerate(tqdm(futures, desc=f"{traffic_type} {traffic_load}", unit=" iterations")):
-                    try:
-                        # EDCAdelay, MNPdelay, OPdelay, TATdelay = future.result()
-                        future.result()
 
-                        ### Uncoment to save the delay vectors into HDF5 files for each iterations, traffic type, and traffic load in a structured directory
-                        # save_to_h5(output_dir, sim, traffic_type, traffic_load, i, EDCAdelay, MNPdelay, OPdelay, TATdelay)
-                    
-                    except Exception as e:
-                        print(f"Error in iterations {i} for {traffic_type} {traffic_load}: {e}")
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(
+                simulate_iterations, sim_config, learning_config, i
+            )
+            for i in range(ITERATIONS)
+        ]
+        for i, future in enumerate(tqdm(futures, desc="Processing", unit=" iterations")):
+            try:
+                # EDCAdelay, MNPdelay, OPdelay, TATdelay = future.result()
+                future.result()
+
+                ### Uncoment to save the delay vectors into HDF5 files for each iterations, traffic type, and traffic load in a structured directory
+                # save_to_h5(output_dir, sim, traffic_type, traffic_load, i, EDCAdelay, MNPdelay, OPdelay, TATdelay)
+            
+            except Exception as e:
+                print(f"Error in iterations {i}")
+
+
 
     # End Timer and print elapsed time
     end_time = time.time()

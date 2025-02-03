@@ -90,7 +90,6 @@ if __name__ == '__main__':
         'walls': walls,
         'MaxTxPower': MaxTxPower,
         'EDCAaccessCategory': EDCAaccessCategory,
-        'validation_flag': 'no',
         'TXOP_DURATION': TXOP_DURATION,
         'PN_DBM': PN_DBM,
         'CCA': CCA,
