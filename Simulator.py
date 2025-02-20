@@ -10,9 +10,11 @@ import h5py
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
-from Utils import *
+from numpy.random import SeedSequence, default_rng
+
+import Utils as utils
 from MAPCsim import *
-from TrafficGenerator import TrafficGenerator
+from TrafficGenerator import traffic_generator
 from DeploymentGenerator import deployment_generator
 import RLagent as RLagent
 
@@ -37,7 +39,7 @@ from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
 
 
 
-def simulate_iterations(sim_config, learning_config, iter_number=None):
+def simulate_iterations(traffic_config, sim_config, learning_config, seed, iter_number=None):
     """
     Simulates one iterations and returns the delay vectors for EDCA, MNP, OP, and TAT.
 
@@ -53,28 +55,21 @@ def simulate_iterations(sim_config, learning_config, iter_number=None):
     Returns:
     np.ndarray, np.ndarray, np.ndarray, np.ndarray: delay vector for EDCA, MNP, OP, and TAT.
     """
+         
+    # Set the seed
+    np.random.seed(seed)
 
-    sim_config['EDCAaccessCategory'] = {'Poisson': 'BE', 'Bursty': 'BE', 'CBR': 'VI'}.get(sim_config['traffic_type'], None)
-    # Check if the traffic type is valid
-    if sim_config['EDCAaccessCategory'] is None:
-        raise ValueError(f"Invalid traffic type: {sim_config['traffic_type']}. Valid types are 'Poisson', 'Bursty', 'CBR'.")
+    # Deployment
+    AP_matrix, STA_matrix, sim_config['association'], sim_config['channelMatrix'] = deployment_generator(sim_config, seed)
 
+    # Use pre-loaded data (if enabled)
+    if sim_config['use_preloaded_deployments']:
+        STA_matrix = STA_matrix_save[:, :, iter_number]
+        sim_config['channelMatrix'] = channelMatrix_save[:, :, iter_number]
 
-    # Deployment-dependent data
-    AP_matrix, STA_matrix, sim_config['association'], sim_config['channelMatrix'] = deployment_generator(sim_config)
-
-    if iter_number is not None:
-        STA_matrix = STA_matrix_save[:,:,iter_number]
-        sim_config['channelMatrix'] = channelMatrix_save[:,:,iter_number]
-
-    # Overheads
-    sim_config['preTX_overheadsEDCA'], sim_config['preTX_overheadsCSR'], sim_config['EDCAoverheads'], sim_config['CSRoverheads'] = OverheadsCalc(sim_config['EDCAaccessCategory'])
-
-    sim_config['per_STA_EDCA_throughput_bianchi'] = Throughput_EDCA_bianchi(sim_config['AP_NUMBER'], sim_config['STA_NUMBER'], sim_config['association'], sim_config['channelMatrix'], sim_config['MaxTxPower'],
-                                                            sim_config['PN_DBM'], sim_config['NSC'], sim_config['NSS'], sim_config['TXOP_DURATION'], 
-                                                            sim_config['EDCAoverheads'], sim_config['EDCAaccessCategory'])
-
-    map_matrix, TxPowerMatrixTemp, comb_ok, datarate = CG_creationTPC(sim_config['AP_NUMBER'], 
+        
+    # Compute the CGs and TxPowerMatrix
+    map_matrix, TxPowerMatrixTemp, comb_ok, datarate = utils.CG_creationTPC(sim_config['AP_NUMBER'], 
                                                 sim_config['STA_NUMBER'], 
                                                 sim_config['PN_DBM'], 
                                                 sim_config['NSC'], 
@@ -91,27 +86,26 @@ def simulate_iterations(sim_config, learning_config, iter_number=None):
     if len(TxPowerMatrix) != len(CGs_STAs):
         raise ValueError('TxPowerMatrix and CGs_STAs have different lengths')
 
-    # ### Traffic dataset
-    # # Load the traffic dataset. Uncomment if using pre-saved dataset.
-    # h5_file_path = os.path.join(os.getcwd(), 'traffic datasets', sim, traffic_type, traffic_load, f"STAs_arrivals_matrix{iter_number}.h5")
-    # # Open and load the dataset
-    # with h5py.File(h5_file_path, 'r') as h5file:
-    #   STAs_arrivals_matrix = np.array([h5file[key][:] for key in h5file.keys()])
+    ### Traffic dataset
+    # Load the traffic dataset. Uncomment if using pre-saved dataset.
+    if sim_config['use_preloaded_traffic']:
+        h5_file_path = os.path.join(os.getcwd(), 'traffic datasets', sim, f"STAs_arrivals_matrix{iter_number}.h5")
+        # Open and load the dataset
+        with h5py.File(h5_file_path, 'r') as h5file:
+            STAs_arrivals_matrix = np.array([h5file[key][:] for key in h5file.keys()])
+    else:
+        # # # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
+        STAs_arrivals_matrix = traffic_generator(
+                traffic_config,
+                sim_config['STA_NUMBER'], 
+                sim_config['FRAME_LENGTH'], 
+                sim_config['EVENT_NUMBER']# Number of events considered for traffic generation
+                ) 
 
-    # # # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
-    STAs_arrivals_matrix = TrafficGenerator(
-            sim_config['STA_NUMBER'], 
-            sim_config['traffic_type'], 
-            sim_config['traffic_load'], 
-            sim_config['L'], 
-            sim_config['per_STA_EDCA_throughput_bianchi'], 
-            sim_config['EVENT_NUMBER']# Number of events considered for traffic generation
-            ) 
 
-
-    model = 'l9dthv3v'
-    env = RLagent.evaluation(map_matrix, TxPowerMatrixTemp, comb_ok, datarate, STAs_arrivals_matrix, sim_config, learning_config, model)
-    env.simulator.TrafficAnalysis()
+    # model = 'l9dthv3v'
+    # env = RLagent.evaluation(map_matrix, TxPowerMatrixTemp, comb_ok, datarate, STAs_arrivals_matrix, sim_config, learning_config, model)
+    # env.simulator.TrafficAnalysis()
 
     np.random.seed(sim_config['seed'])
     simEDCA = MAPCsim(sim_config)  # new "MAPC simulator" object
@@ -162,8 +156,8 @@ def simulate_iterations(sim_config, learning_config, iter_number=None):
     simTAT.Run()
 
     print(f'Iteration: {iter_number}')
-    print(f'RL_PPO 50th {np.percentile(env.simulator.delayvector,50)*1000}')
-    print(f'RL_PPO 99th {np.percentile(env.simulator.delayvector,99)*1000}')
+    # print(f'RL_PPO 50th {np.percentile(env.simulator.delayvector,50)*1000}')
+    # print(f'RL_PPO 99th {np.percentile(env.simulator.delayvector,99)*1000}')
     print(f'EDCA 50th {np.percentile(simEDCA.delayvector,50)*1000}')
     print(f'EDCA 99th {np.percentile(simEDCA.delayvector,99)*1000}')
     print(f'MNP 50th {np.percentile(simMNP.delayvector,50)*1000}')
@@ -195,6 +189,13 @@ def save_to_h5(output_dir, sim, traffic_type, traffic_load, ITERATIONS, EDCAdela
         f.create_dataset('OPdelay', data=OPdelay)
         f.create_dataset('TATdelay', data=TATdelay)
 
+def init_pool_processes(h5_path, use_preloaded):
+    """Load HDF5 data only if required by the simulation mode"""
+    global STA_matrix_save, channelMatrix_save
+    if use_preloaded:
+        with h5py.File(h5_path, 'r') as f:
+            STA_matrix_save = f['STA_matrix_save'][:]
+            channelMatrix_save = f['channelMatrix_save'][:]
 
 # Main function
 if __name__ == "__main__":
@@ -204,11 +205,11 @@ if __name__ == "__main__":
 
     # Scenario-related
     AP_NUMBER = 4
-    STA_NUMBER = 16
-    GRID_VALUE = 60
+    STA_NUMBER = 8
+    GRID_VALUE = 40
     SCENARIO_TYPE = 'grid'
 
-    sim = '30metros-16STAs'
+    sim = '20metros-8STAs'
     walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
                     [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
 
@@ -218,35 +219,43 @@ if __name__ == "__main__":
     CCA = -82
     BW = 80
     NSS = 2
-    L = 12E3
-
-    ITERATIONS = 100
+    FRAME_LENGTH = 12E3
 
     ### Channel-related parameters
-    MaxTxPower, NSC = TXpowerCalc(BW, NSS)
+    MaxTxPower, NSC = utils.TXpowerCalc(BW, NSS)
 
+    # Number of iterations
+    ITERATIONS = 100
 
-    # ### Load deployment data
+    seed_seq = SeedSequence(1)
+    seeds = seed_seq.generate_state(ITERATIONS)
+
+    # Deployment data path
     h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
-    with h5py.File(h5file_deployments_path, 'r') as f:
-        STA_matrix_save = f['STA_matrix_save'][:]
-        channelMatrix_save = f['channelMatrix_save'][:]
-        RSSI_dB_vector_to_export_save = f['RSSI_dB_vector_to_export_save'][:]
 
-    ### Output directory    
-    output_dir = os.path.join(os.getcwd(), 'Results/Simulation')
-    
     traffic_profiles = {
-        'A' : {'model': 'Poisson', 'load' : 100, 'latency': 1E-4},
-        'B' : {'model': 'Bursty', 'load' : 50, 'latency': 2E-4},
-        'C' : {'model': 'CBR', 'load' : 25, 'latency': 5E-4}
+        'A' : {'traffic_model': 'Poisson', 'traffic_load' : 100, 'latency': 1E-4},
+        'B' : {'traffic_model': 'Bursty', 'traffic_load' : 50, 'latency': 2E-4},
+        'C' : {'traffic_model': 'CBR', 'traffic_load' : 25, 'fps': 60, 'latency': 5E-4}
     }
 
     traffic_profile_perSTA = np.random.choice(['A','B','C'], size=STA_NUMBER).tolist()
 
+    traffic_config = {
+        'traffic_profiles': traffic_profiles,
+        'traffic_profile_perSTA': traffic_profile_perSTA,
+        'EDCAaccessCategory' : [
+            {'Poisson': 'BE',
+            'Bursty': 'BE',
+            'CBR': 'VI'
+            }.get(traffic_profiles[traffic_profile_perSTA[i]]['traffic_model'], None) 
+            for i in range(STA_NUMBER)]
+    }  
     
     # Simulation Configuration
     sim_config = {
+        'use_preloaded_deployments': True,
+        'use_preloaded_traffic': True,
         'AP_NUMBER': AP_NUMBER,
         'STA_NUMBER': STA_NUMBER,
         'SCENARIO_TYPE': SCENARIO_TYPE,
@@ -261,9 +270,22 @@ if __name__ == "__main__":
         'learning_timestamp_to_stop': 2, # seconds
         'training_flag': False,
         'timestamp_to_stop': 5, # seconds
-        'L': L,
-        'EVENT_NUMBER': 30000, # Number of events considered for traffic generation
-        'seed': 1
+        'FRAME_LENGTH': FRAME_LENGTH,
+        'EVENT_NUMBER': int(1E5), # Number of events considered for traffic generation
+        'seed': 1,
+        'output_dir': os.path.join(os.getcwd(), 'traffic datasets', sim),
+        'overheads' : {
+            key: [
+                utils.OverheadsCalc(traffic_config['EDCAaccessCategory'][i])[idx]
+                for i in range(STA_NUMBER)
+            ]
+            for idx, key in enumerate([
+                'preTX_overheadsEDCA',
+                'preTX_overheadsCSR',
+                'EDCAoverheads',
+                'CSRoverheads'
+            ])
+        }
     }
 
     # Learning Configuration
@@ -277,14 +299,19 @@ if __name__ == "__main__":
     # Run simulations with progress bar
     max_workers = 1  # Adjust the number of workers as needed
 
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+    with ProcessPoolExecutor(
+        max_workers=max_workers,
+        initializer=init_pool_processes,
+        initargs=(h5file_deployments_path, sim_config['use_preloaded_deployments'])
+        ) as executor:
+
         futures = [
             executor.submit(
-                simulate_iterations, sim_config, learning_config, i
+                simulate_iterations, traffic_config, sim_config, learning_config, seeds[iter_number], iter_number
             )
-            for i in range(ITERATIONS)
+            for iter_number in range(ITERATIONS)
         ]
-        for i, future in enumerate(tqdm(futures, desc="Processing", unit=" iterations")):
+        for iter_number, future in enumerate(tqdm(futures, desc="Processing", unit=" iterations")):
             try:
                 # EDCAdelay, MNPdelay, OPdelay, TATdelay = future.result()
                 future.result()
@@ -293,9 +320,7 @@ if __name__ == "__main__":
                 # save_to_h5(output_dir, sim, traffic_type, traffic_load, i, EDCAdelay, MNPdelay, OPdelay, TATdelay)
             
             except Exception as e:
-                print(f"Error in iterations {i}")
-
-
+                print(f"Error in iterations {iter_number}")
 
     # End Timer and print elapsed time
     end_time = time.time()

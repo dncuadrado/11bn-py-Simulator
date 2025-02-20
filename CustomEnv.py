@@ -2,7 +2,7 @@ from typing import List, Any
 import gymnasium as gym
 from gymnasium import spaces
 import numpy as np
-from TrafficGenerator import TrafficGenerator
+from TrafficGenerator import traffic_generator
 from Utils import get_association, Throughput_EDCA_bianchi, CG_creationTPC
 from DeploymentGenerator import deployment_generator
 
@@ -119,12 +119,12 @@ class CustomEnv(gym.Env):
         #     self.episode_counter = 0
 
         if STAs_arrivals_matrix is None:
-            STAs_arrivals_matrix = TrafficGenerator(
+            STAs_arrivals_matrix = traffic_generator(
                         self.sim_config['STA_NUMBER'], # Number of STAs
                         self.sim_config['validation_flag'], # Validation flag
                         self.sim_config['traffic_type'], # Traffic type
                         self.sim_config['traffic_load'], # Traffic load
-                        self.sim_config['L'], # Packet length
+                        self.sim_config['FRAME_LENGTH'], # Packet length
                         self.sim_config['per_STA_EDCA_throughput_bianchi'], # EDCA throughput per STA                                    
                         self.sim_config['EVENT_NUMBER']# Number of events considered for traffic generation
                         )  

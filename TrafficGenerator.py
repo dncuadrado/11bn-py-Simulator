@@ -4,67 +4,73 @@ import h5py
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
-from Utils import *
+from numpy.random import SeedSequence, default_rng
 
-def TrafficGenerator(STA_NUMBER, traffic_type, traffic_load, L, 
-                     per_STA_EDCA_throughput_bianchi, EVENT_NUMBER):
+import Utils as utils
+from DeploymentGenerator import deployment_generator
+
+
+
+def traffic_generator(traffic_config, sim_config):
     """
     Generates a list of arrival times for each STA based on the specified traffic model.
     """
+    # Initialize the STAs_arrivals_matrix
+    STAs_arrivals_matrix = []
 
-    # Traffic load configuration
-    traffic_loads = {'low': 0.3, 'medium': 0.6, 'high': 0.9}
+    for sta in range(sim_config['STA_NUMBER']):
+        
+        # Loading STA profile
+        traffic_profile = traffic_config['traffic_profiles'][traffic_config['traffic_profile_perSTA'][sta]]
 
-    if traffic_load in traffic_loads:
-        C = traffic_loads[traffic_load]
-        traffic_generation_rate = C * np.min(per_STA_EDCA_throughput_bianchi) * 1E6 / L  # in packets/s
-    elif traffic_load in ['30-60', '30-90', '30-120']:
-        pass  # No need to set C or traffic_generation_rate for CBR traffic
-    else:
-        raise ValueError("Invalid traffic load specified.")
+        # Loading the traffic model
+        traffic_model = traffic_profile['traffic_model']
 
+        # Loading the traffic load
+        traffic_load = traffic_profile['traffic_load']
+        
+        traffic_generation_rate = traffic_load  * 1E6 / FRAME_LENGTH  # in packets/sec
+        match traffic_model:
+            case 'Poisson': # Poisson traffic model
+                arrivals = poisson_fixed_events(sim_config['EVENT_NUMBER'], traffic_generation_rate)
+            case 'Bursty': # Bursty traffic model
+                arrivals = generate_burst_traffic(sim_config['EVENT_NUMBER'], traffic_generation_rate)
+            case 'CBR': # CBR traffic model
+                fps = traffic_config['traffic_profiles'][traffic_config['traffic_profile_perSTA'][sta]]['fps']
+                arrivals = generate_CBR_traffic(FRAME_LENGTH, traffic_load, fps)
+            case _:
+                raise ValueError("Invalid traffic type specified.")
     
-
-    # Traffic type selection
-    if traffic_type == 'Poisson':
-        STAs_arrivals_matrix = poisson_fixed_events(STA_NUMBER, EVENT_NUMBER, traffic_generation_rate)
-    elif traffic_type == 'Bursty':
-        STAs_arrivals_matrix = generate_burst_traffic(STA_NUMBER, EVENT_NUMBER, traffic_generation_rate)
-    elif traffic_type == 'CBR':
-        STAs_arrivals_matrix = generate_CBR_traffic(STA_NUMBER, traffic_load, L)
-    else:
-        raise ValueError("Invalid traffic type specified.")
+        STAs_arrivals_matrix.append(arrivals)
 
     return STAs_arrivals_matrix
 
-def poisson_fixed_events(STA_NUMBER, EVENT_NUMBER, traffic_generation_rate):
+def poisson_fixed_events(EVENT_NUMBER, traffic_generation_rate):
     """
     Generate arrival times using a Poisson process for each STA.
     """
-    STAs_arrivals_matrix = []
-    for _ in range(STA_NUMBER):
-        # Generate exponential inter-arrival times
-        w = np.random.exponential(scale=1/traffic_generation_rate, size=EVENT_NUMBER)
-        arrivals = np.cumsum(w)
-        STAs_arrivals_matrix.append(arrivals)
 
-        # # Plot the exponential inter-arrival times histogram
-        # plt.figure()
-        # plt.hist(w, bins=50, density=True, alpha=0.75)
-        # x = np.linspace(0, np.max(w), 100)
-        # plt.plot(x, traffic_generation_rate * np.exp(-traffic_generation_rate * x), 'r-', lw=2)
-        # plt.title('Histogram of Inter-Arrival Times with Exponential PDF')
-        # plt.xlabel('Inter-Arrival Time')
-        # plt.ylabel('Probability Density')
-        # plt.show()
+    # Generate exponential inter-arrival times
+    w = np.random.exponential(scale=1/traffic_generation_rate, size=EVENT_NUMBER)
+    arrivals = np.cumsum(w)
 
-    return STAs_arrivals_matrix
+    # import matplotlib.pyplot as plt
+    # # Plot the exponential inter-arrival times histogram
+    # plt.figure()
+    # plt.hist(w, bins=50, density=True, alpha=0.75)
+    # x = np.linspace(0, np.max(w), 100)
+    # plt.plot(x, traffic_generation_rate * np.exp(-traffic_generation_rate * x), 'r-', lw=2)
+    # plt.title('Histogram of Inter-Arrival Times with Exponential PDF')
+    # plt.xlabel('Inter-Arrival Time')
+    # plt.ylabel('Probability Density')
+    # plt.show()
 
-def generate_burst_traffic(STA_NUMBER, EVENT_NUMBER, traffic_generation_rate):
+    return arrivals
+
+def generate_burst_traffic(EVENT_NUMBER, traffic_generation_rate):
     """
     Generate bursty traffic arrivals for each STA.
     """
-    STAs_arrivals_matrix = []
 
     # Average ON and OFF times
     average_on_time = 1E-3
@@ -76,27 +82,27 @@ def generate_burst_traffic(STA_NUMBER, EVENT_NUMBER, traffic_generation_rate):
     # Adjusted generation rate during ON periods
     adjusted_generation_rate = traffic_generation_rate / on_off_ratio
 
-    for i in range(STA_NUMBER):
-        arrival_times = np.zeros(EVENT_NUMBER)  # Preallocate space for arrival times
-        current_time = 0  # Start at time 0
-        total_packets_generated = 0  # Track the total number of packets generated
 
-        while total_packets_generated < EVENT_NUMBER:
-            # ON period: Generate packets based on adjusted_generation_rate
-            on_period_duration = np.random.exponential(average_on_time)
-            packets_in_burst = int(on_period_duration * adjusted_generation_rate)
+    arrivals = np.zeros(EVENT_NUMBER)  # Preallocate space for arrival times
+    current_time = 0  # Start at time 0
+    total_packets_generated = 0  # Track the total number of packets generated
 
-            for _ in range(packets_in_burst):
-                if total_packets_generated >= EVENT_NUMBER:
-                    break
-                inter_arrival_time = np.random.exponential(1 / adjusted_generation_rate)
-                current_time += inter_arrival_time
-                arrival_times[total_packets_generated] = current_time
-                total_packets_generated += 1
+    while total_packets_generated < EVENT_NUMBER:
+        # ON period: Generate packets based on adjusted_generation_rate
+        on_period_duration = np.random.exponential(average_on_time)
+        packets_in_burst = int(on_period_duration * adjusted_generation_rate)
 
-            # OFF period: No packets generated
-            off_period_duration = np.random.exponential(average_off_time)
-            current_time += off_period_duration
+        for _ in range(packets_in_burst):
+            if total_packets_generated >= EVENT_NUMBER:
+                break
+            inter_arrival_time = np.random.exponential(1 / adjusted_generation_rate)
+            current_time += inter_arrival_time
+            arrivals[total_packets_generated] = current_time
+            total_packets_generated += 1
+
+        # OFF period: No packets generated
+        off_period_duration = np.random.exponential(average_off_time)
+        current_time += off_period_duration
 
         ##### Verifying the code:
         # # Check if the arrival times are in increasing order
@@ -108,93 +114,104 @@ def generate_burst_traffic(STA_NUMBER, EVENT_NUMBER, traffic_generation_rate):
         # print(f"STA {i}: Actual rate = {actual_rate:.2f} packets/sec and expected rate = {traffic_generation_rate:.2f} packets/sec")
 
         # Add the generated arrival times to the result matrix
-        STAs_arrivals_matrix.append(arrival_times)
 
-    return STAs_arrivals_matrix
 
-def generate_CBR_traffic(STA_NUMBER, traffic_load, L):
+    return arrivals
+
+def generate_CBR_traffic(FRAME_LENGTH, traffic_load, fps):
     """
     Generate CBR traffic arrivals for each STA.
     """
-    bitrate, fps = map(float, traffic_load.split('-'))
+    bitrate = traffic_load
     frame_interval = 1 / fps
-    frames_per_burst = int(np.ceil((bitrate * 1E6 * frame_interval) / L))
+    frames_per_burst = int(np.ceil((bitrate * 1E6 * frame_interval) / FRAME_LENGTH))
     frame_spacing = 5E-6
     stop_timestamp = 20
 
-    STAs_arrivals_matrix = []
-    for _ in range(STA_NUMBER):
-        current_time = np.random.uniform(0, frame_interval)
-        interarrival_times = []
-        while current_time < stop_timestamp:
-            burst_times = current_time + np.arange(frames_per_burst) * frame_spacing
-            interarrival_times.extend(burst_times)
-            current_time += frame_interval
+    current_time = np.random.uniform(0, frame_interval)
+    arrivals = []
+    while current_time < stop_timestamp:
+        burst_times = current_time + np.arange(frames_per_burst) * frame_spacing
+        arrivals.extend(burst_times)
+        current_time += frame_interval
 
-        STAs_arrivals_matrix.append(np.array(interarrival_times))
+    return np.array(arrivals)
 
-    return STAs_arrivals_matrix
-
-def save_to_h5(output_dir, sim, traffic_type, traffic_load, iteration, STAs_arrivals_matrix):
+def save_to_h5(sim_config, traffic_config, STAs_arrivals_matrix, iter_number):
     """
     Saves the STAs_arrivals_matrix into individual HDF5 files in a structured directory.
     """
     # Create the directory structure
-    output_path = os.path.join(output_dir, sim, traffic_type, traffic_load)
+    output_path = sim_config['output_dir']
     os.makedirs(output_path, exist_ok=True)
 
     # Save the current iteration to its own HDF5 file
-    h5_file_path = os.path.join(output_path, f"STAs_arrivals_matrix{iteration}.h5")
+    h5_file_path = os.path.join(output_path, f"STAs_arrivals_matrix{iter_number}.h5")
     with h5py.File(h5_file_path, 'w') as h5file:
         for i, arrivals in enumerate(STAs_arrivals_matrix):
-            h5file.create_dataset(f"STA_{i}", data=arrivals) # no comrpession
+            h5file.create_dataset(f"STA_{i}", data=arrivals) # no compression
             # h5file.create_dataset(f"STA_{i}", data=arrivals, compression="gzip")   # with compression
 
-def simulate_iteration(sim, traffic_type, traffic_load, iteration, STA_matrix_save, channelMatrix_save, RSSI_dB_vector_to_export_save):
+        # Store each key-value pair as an attribute
+        for key, value in traffic_config.items():
+            h5file.attrs[key] = str(value)
+
+def init_pool_processes(h5_path, use_preloaded):
+    """Load HDF5 data only if required by the simulation mode"""
+    global STA_matrix_save, channelMatrix_save
+    if use_preloaded:
+        with h5py.File(h5_path, 'r') as f:
+            STA_matrix_save = f['STA_matrix_save'][:]
+            channelMatrix_save = f['channelMatrix_save'][:]
+
+def simulate_iterations(traffic_config, sim_config, iter_number, seed):
     """
     Simulates one iteration and returns the STAs_arrivals_matrix.
     """
-    # Deployment-dependent data
-    STA_matrix = STA_matrix_save[:, :, iteration]
-    channelMatrix = channelMatrix_save[:, :, iteration]
-    RSSI_dB_vector_to_export = RSSI_dB_vector_to_export_save[:, :, iteration]
+    # Set the seed
+    np.random.seed(seed)
 
-    # Generate per-STA EDCA throughput using your existing logic
-    # Simulate necessary steps for the deployment
-    association = AP_STA_Association(AP_NUMBER, STA_NUMBER, SCENARIO_TYPE)
-    _, _, EDCAoverheads, _ = OverheadsCalc(EDCAaccessCategory)
+    # Mode 1: Use pre-loaded data (if enabled)
+    if sim_config['use_preloaded_deployments']:
+        STA_matrix = STA_matrix_save[:, :, iter_number]
+        sim_config['channelMatrix'] = channelMatrix_save[:, :, iter_number]
+    # Mode 2: Generate fresh data
+    else:
+        AP_matrix, STA_matrix, sim_config['association'], sim_config['channelMatrix'] = deployment_generator(sim_config, seed)
 
-    per_STA_EDCA_throughput_bianchi = Throughput_EDCA_bianchi(
-        AP_NUMBER, STA_NUMBER, association, RSSI_dB_vector_to_export, PN_DBM, Nsc, NSS, 
-        TXOP_DURATION, EDCAoverheads, EDCAaccessCategory
-    )
+    traffic_profile_perSTA = np.random.choice(['A','B','C'], size=STA_NUMBER).tolist()
+    traffic_config['traffic_profile_perSTA'] = traffic_profile_perSTA
+    traffic_config['EDCAaccessCategory'] = [
+            {'Poisson': 'BE',
+            'Bursty': 'BE',
+            'CBR': 'VI'
+            }.get(traffic_config['traffic_profiles'][traffic_profile_perSTA[i]]['traffic_model'], None) 
+            for i in range(sim_config['STA_NUMBER'])]
 
-    # Generate traffic for the current iteration
-    STAs_arrivals_matrix = TrafficGenerator(
-            STA_NUMBER, traffic_type, traffic_load, L, per_STA_EDCA_throughput_bianchi, 
-            EVENT_NUMBER = 150000
-        )
-    return STAs_arrivals_matrix
+    # # # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
+    STAs_arrivals_matrix = traffic_generator(traffic_config, sim_config)
+    
+    ### Uncoment to save the delay vectors into HDF5 files for each iterations, traffic type, and traffic load in a structured directory
+    save_to_h5(sim_config, traffic_config, STAs_arrivals_matrix, iter_number)
+    
+    return 
+
+# Define module-level globals
+STA_matrix_save = None
+channelMatrix_save = None
+
 
 # main function
 if __name__ == "__main__":
     # Start Timer
     start_time = time.time()
 
-    ###### Input parameters
-    EDCAaccessCategory = 'VI'
-    traffic_types = ['Poisson', 'Bursty', 'CBR']
-    traffic_loads = {
-        'Poisson': ['low', 'medium', 'high'],
-        'Bursty': ['low', 'medium', 'high'],
-        'CBR': ['30-60', '30-90', '30-120']
-    }
-
     # Scenario-related
     AP_NUMBER = 4
     STA_NUMBER = 16
     GRID_VALUE = 60
     SCENARIO_TYPE = 'grid'
+
     sim = '30metros-16STAs'
     walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
                     [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
@@ -205,50 +222,75 @@ if __name__ == "__main__":
     CCA = -82
     BW = 80
     NSS = 2
-    L = 12E3
-
-    ITERATIONS = 100
-
+    FRAME_LENGTH = 12E3
 
     ### Channel-related parameters
-    MaxTxPower, Nsc = TXpowerCalc(BW, NSS)
+    MaxTxPower, NSC = utils.TXpowerCalc(BW, NSS)
 
-    # Seed for reproducibility
-    rndGeneration = {
-        '20metros-8STAs': 1, 
-        '20metros-16STAs': 2,
-        '30metros-16STAs': 3,
-    }
-    np.random.seed(rndGeneration[sim])
+    # Number of iterations
+    ITERATIONS = 100
 
-    # Load deployment data
+    seed_seq = SeedSequence(1)
+    seeds = seed_seq.generate_state(ITERATIONS)
+
+    # Deployment data path
     h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
-    with h5py.File(h5file_deployments_path, 'r') as f:
-        STA_matrix_save = f['STA_matrix_save'][:]
-        channelMatrix_save = f['channelMatrix_save'][:]
-        RSSI_dB_vector_to_export_save = f['RSSI_dB_vector_to_export_save'][:]
 
-    # Output directory    
-    output_dir = os.path.join(os.getcwd(), 'traffic datasets')
+    traffic_config = {
+        'traffic_profiles': {
+        'A' : {'traffic_model': 'Poisson', 'traffic_load' : 100, 'latency': 1E-4},
+        'B' : {'traffic_model': 'Bursty', 'traffic_load' : 50, 'latency': 2E-4},
+        'C' : {'traffic_model': 'CBR', 'traffic_load' : 25, 'fps': 60, 'latency': 5E-4}
+    },
+        'traffic_profile_perSTA': '',
+        'EDCAaccessCategory' : ''
+    }  
+    
+    # Simulation Configuration
+    sim_config = {
+        'use_preloaded_deployments': True,
+        'AP_NUMBER': AP_NUMBER,
+        'STA_NUMBER': STA_NUMBER,
+        'SCENARIO_TYPE': SCENARIO_TYPE,
+        'GRID_VALUE': GRID_VALUE,
+        'walls': walls,
+        'MaxTxPower': MaxTxPower,
+        'TXOP_DURATION': TXOP_DURATION,
+        'PN_DBM': PN_DBM,
+        'CCA': CCA,
+        'NSS': NSS,
+        'NSC': NSC,
+        'learning_timestamp_to_stop': 2, # seconds
+        'training_flag': False,
+        'timestamp_to_stop': 5, # seconds
+        'FRAME_LENGTH': FRAME_LENGTH,
+        'EVENT_NUMBER': int(1E5), # Number of events considered for traffic generation
+        'seed': 1,
+        'output_dir': os.path.join(os.getcwd(), 'traffic datasets', sim),
+        'overheads' : ''
+    }
 
     # Run simulations with progress bar
-    MAX_WORKERS = 8  # Adjust the number of workers as needed
-    with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        for traffic_type in traffic_types:
-            for traffic_load in traffic_loads[traffic_type]:
-                futures = [
-                    executor.submit(
-                        simulate_iteration, sim, traffic_type, traffic_load, i, 
-                        STA_matrix_save, channelMatrix_save, RSSI_dB_vector_to_export_save
-                    )
-                    for i in range(ITERATIONS)
-                ]
-                for i, future in enumerate(tqdm(futures, desc=f"{traffic_type} {traffic_load}", unit=" iteration")):
-                    try:
-                        STAs_arrivals_matrix = future.result()
-                        save_to_h5(output_dir, sim, traffic_type, traffic_load, i, STAs_arrivals_matrix)
-                    except Exception as e:
-                        print(f"Error in iteration {i} for {traffic_type} {traffic_load}: {e}")
+    max_workers = min(os.cpu_count(), ITERATIONS)  # Optimize worker count
+
+    with ProcessPoolExecutor(
+        max_workers=max_workers,
+        initializer=init_pool_processes,
+        initargs=(h5file_deployments_path, sim_config['use_preloaded_deployments'])
+        ) as executor:
+
+        futures = [
+            executor.submit(
+                simulate_iterations, traffic_config, sim_config, iter_number, seeds[iter_number] 
+            )
+            for iter_number in range(ITERATIONS)
+        ]
+        for iter_number, future in enumerate(tqdm(futures, desc="Processing", unit=" iterations")):
+            try:
+                future.result()
+            
+            except Exception as e:
+                print(f"Error in iterations {iter_number}")
 
     # End Timer and print elapsed time
     end_time = time.time()

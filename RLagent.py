@@ -4,7 +4,7 @@ import numpy as np
 from Utils import *
 from MAPCsim import *
 from CustomEnv import * # my Custom environment
-from TrafficGenerator import TrafficGenerator
+from TrafficGenerator import traffic_generator
 from DeploymentGenerator import deployment_generator
 
 # RL Model (e.g., PPO)
@@ -203,7 +203,7 @@ if __name__ == '__main__':
     CCA = -82
     BW = 80
     NSS = 2
-    L = 12E3
+    FRAME_LENGTH = 12E3
 
     ITERATIONS = 1
 
@@ -234,7 +234,7 @@ if __name__ == '__main__':
         'learning_timestamp_to_stop': 2, # seconds
         'training_flag': True,
         'timestamp_to_stop': 5, # seconds
-        'L': L,
+        'FRAME_LENGTH': FRAME_LENGTH,
         'EVENT_NUMBER': 30000, # Number of events considered for traffic generation
         'seed': 1
     }

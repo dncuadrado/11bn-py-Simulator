@@ -73,7 +73,7 @@ if __name__ == '__main__':
     CCA = -82
     BW = 80
     NSS = 2
-    L = 12E3
+    FRAME_LENGTH = 12E3
 
     # Channel-related parameters
     MaxTxPower, NSC = TXpowerCalc(BW, NSS)

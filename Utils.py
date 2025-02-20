@@ -62,11 +62,11 @@ def OverheadsCalc(EDCAaccessCategory):
 
     # EDCA Overheads
     preTX_overheadsEDCA = TRTS + TSIFS + TCTS + TSIFS + TIME_PREAMBLE_DATA
-    EDCAoverheads = TRTS + TSIFS + TCTS + TSIFS + TIME_PREAMBLE_DATA + TSIFS + TBACK + AIFS + TE
+    EDCAoverheads = preTX_overheadsEDCA + TSIFS + TBACK + AIFS + TE
 
     # CSR Overheads
     preTX_overheadsCSR = TMAPC_ICF + TSIFS + TMAPC_ICR + TSIFS + TMAPC_TF + TSIFS + TIME_PREAMBLE_DATA
-    CSRoverheads = TMAPC_ICF + TSIFS + TMAPC_ICR + TSIFS + TMAPC_TF + TSIFS + TIME_PREAMBLE_DATA + TSIFS + TBACK + AIFS + TE
+    CSRoverheads = preTX_overheadsCSR + TSIFS + TBACK + AIFS + TE
 
     return preTX_overheadsEDCA, preTX_overheadsCSR, EDCAoverheads, CSRoverheads
 ####################################################################################################################
@@ -914,7 +914,7 @@ def Throughput_EDCA_bianchi(AP_NUMBER, STA_NUMBER, association, channelMatrix, M
     TRTS = 56E-6        # RTS duration
     TCTS = 48E-6        # CTS duration
     
-    L = 12e3            # Single frame length
+    FRAME_LENGTH = 12e3            # Single frame length
     TE = 9e-6           # Duration of a single backoff slot
     
     AIFSN = 2 if EDCAaccessCategory in ['VI', 'VO'] else 3
@@ -969,7 +969,7 @@ def Throughput_EDCA_bianchi(AP_NUMBER, STA_NUMBER, association, channelMatrix, M
             raise ValueError("Impossible to transmit more than 1024 MSDUs")
         
         # Throughput calculation following Bianchi's model [Mbps]
-        per_STA_EDCA_throughput_bianchi[kk] = p_STA * ps * rx_packets[kk] * L / (1e6 * (pe * TE + ps * TXOP_DURATION + pc * Tcoll))
+        per_STA_EDCA_throughput_bianchi[kk] = p_STA * ps * rx_packets[kk] * FRAME_LENGTH / (1e6 * (pe * TE + ps * TXOP_DURATION + pc * Tcoll))
     
     return per_STA_EDCA_throughput_bianchi
 ####################################################################################################################
@@ -1019,7 +1019,7 @@ def Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, association, CGs_STAs, TxPower
             per_STA_rx_packets[STAs[k]].append(rx_packets[i][k])
 
     # Bianchi section
-    L = 12e3  # Frame length (bytes)
+    FRAME_LENGTH = 12e3  # Frame length (bytes)
     
     # DL calculation
     tau_DL, _, prob_col_bianchi = SimpleEDCA_modelWithBEB(AP_NUMBER, EDCAaccessCategory)
@@ -1038,7 +1038,7 @@ def Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, association, CGs_STAs, TxPower
     DL_throughput_CSR_bianchi = np.zeros(STA_NUMBER)
     for kk in range(STA_NUMBER):
         # Calculate the throughput for each STA using Bianchi's model [Mbps]
-        DL_throughput_CSR_bianchi[kk] = p_comb * ps_DL * L * np.sum(per_STA_rx_packets[kk]) / (1e6 * (pe_DL * Te + ps_DL * TXOP_DURATION + pc_DL * Tcoll))
+        DL_throughput_CSR_bianchi[kk] = p_comb * ps_DL * FRAME_LENGTH * np.sum(per_STA_rx_packets[kk]) / (1e6 * (pe_DL * Te + ps_DL * TXOP_DURATION + pc_DL * Tcoll))
         if DL_throughput_CSR_bianchi[kk] <= 0:
             raise ValueError('Throughput <= 0 is not allowed')
     
