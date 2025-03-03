@@ -189,11 +189,11 @@ if __name__ == '__main__':
 
     # Scenario-related
     AP_NUMBER = 4
-    STA_NUMBER = 16
-    GRID_VALUE = 60
+    STA_NUMBER = 8
+    GRID_VALUE = 40
     SCENARIO_TYPE = 'grid'
 
-    sim = '30metros-16STAs'
+    sim = '20metros-8STAs'
     walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
                     [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
 
