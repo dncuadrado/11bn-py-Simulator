@@ -193,7 +193,7 @@ if __name__ == '__main__':
     GRID_VALUE = 60
     SCENARIO_TYPE = 'grid'
 
-    sim = '20metros-16STAs'
+    sim = '30metros-16STAs'
     walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
                     [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
 
