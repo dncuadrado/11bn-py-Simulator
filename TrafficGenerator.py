@@ -29,7 +29,7 @@ def traffic_generator(traffic_config, sim_config):
         # Loading the traffic load
         traffic_load = traffic_profile['traffic_load']
         
-        traffic_generation_rate = traffic_load  * 1E6 / FRAME_LENGTH  # in packets/sec
+        traffic_generation_rate = traffic_load  * 1E6 / sim_config['FRAME_LENGTH']  # in packets/sec
         match traffic_model:
             case 'Poisson': # Poisson traffic model
                 arrivals = poisson_fixed_events(sim_config['EVENT_NUMBER'], traffic_generation_rate)
@@ -37,7 +37,7 @@ def traffic_generator(traffic_config, sim_config):
                 arrivals = generate_burst_traffic(sim_config['EVENT_NUMBER'], traffic_generation_rate)
             case 'CBR': # CBR traffic model
                 fps = traffic_config['traffic_profiles'][traffic_config['traffic_profile_perSTA'][sta]]['fps']
-                arrivals = generate_CBR_traffic(FRAME_LENGTH, traffic_load, fps)
+                arrivals = generate_CBR_traffic(sim_config['FRAME_LENGTH'], traffic_load, fps)
             case _:
                 raise ValueError("Invalid traffic type specified.")
     
