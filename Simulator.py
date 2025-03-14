@@ -8,9 +8,10 @@ import time
 import os
 import h5py
 import numpy as np
+import re
 from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
-from numpy.random import SeedSequence, default_rng
+from numpy.random import SeedSequence
 
 import Utils as utils
 from MAPCsim import *
@@ -18,25 +19,12 @@ from TrafficGenerator import traffic_generator
 from DeploymentGenerator import deployment_generator
 import RLagent as RLagent
 
-
-
-# RL Model (e.g., PPO)
 from CustomEnv import * # my Custom environment
-from stable_baselines3 import PPO, DQN, A2C
-from stable_baselines3.common.env_checker import check_env
-from stable_baselines3.common.vec_env import DummyVecEnv
-from stable_baselines3.common.vec_env import SubprocVecEnv
+from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.results_plotter import load_results, ts2xy
-from stable_baselines3.common.noise import NormalActionNoise
-from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
-from stable_baselines3.common.env_util import make_vec_env
 
 from sb3_contrib import MaskablePPO
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
-
-
-
 
 
 def simulate_iterations(traffic_config, sim_config, learning_config, seed, iter_number=None):
@@ -92,14 +80,12 @@ def simulate_iterations(traffic_config, sim_config, learning_config, seed, iter_
         h5_file_path = os.path.join(os.getcwd(), 'traffic datasets', sim, f"STAs_arrivals_matrix{iter_number}.h5")
         # Open and load the dataset
         with h5py.File(h5_file_path, 'r') as h5file:
-            STAs_arrivals_matrix = np.array([h5file[key][:] for key in h5file.keys()])
+            STAs_arrivals_matrix = [h5file[key][:] for key in h5file.keys()]
     else:
         # # # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
         STAs_arrivals_matrix = traffic_generator(
                 traffic_config,
-                sim_config['STA_NUMBER'], 
-                sim_config['FRAME_LENGTH'], 
-                sim_config['EVENT_NUMBER']# Number of events considered for traffic generation
+                sim_config
                 ) 
 
 
@@ -203,13 +189,15 @@ if __name__ == "__main__":
     # Start Timer
     start_time = time.time()
 
+    sim = '20-8'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
+    numbers = re.findall(r'\d+', sim) # Extract numbers from the simulation name
+
     # Scenario-related
     AP_NUMBER = 4
-    STA_NUMBER = 8
-    GRID_VALUE = 40
+    STA_NUMBER = int(numbers[1]) 
+    GRID_VALUE = int(numbers[0]) * 2
     SCENARIO_TYPE = 'grid'
 
-    sim = '20metros-8STAs'
     walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
                     [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
 
@@ -233,14 +221,17 @@ if __name__ == "__main__":
     # Deployment data path
     h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
 
+    # Define the traffic profiles
     traffic_profiles = {
         'A' : {'traffic_model': 'Poisson', 'traffic_load' : 100, 'latency': 1E-4},
         'B' : {'traffic_model': 'Bursty', 'traffic_load' : 50, 'latency': 2E-4},
         'C' : {'traffic_model': 'CBR', 'traffic_load' : 25, 'fps': 60, 'latency': 5E-4}
     }
 
+    # Assign a traffic profile to each STA
     traffic_profile_perSTA = np.random.choice(['A','B','C'], size=STA_NUMBER).tolist()
 
+    # Traffic Configuration 
     traffic_config = {
         'traffic_profiles': traffic_profiles,
         'traffic_profile_perSTA': traffic_profile_perSTA,

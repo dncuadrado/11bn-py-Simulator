@@ -1,6 +1,7 @@
 import os
 import h5py
 import numpy as np
+import re
 from Utils import *
 from MAPCsim import *
 from CustomEnv import * # my Custom environment
@@ -187,13 +188,15 @@ def evaluation(map_matrix, TxPowerMatrixTemp, comb_ok, datarate, STAs_arrivals_m
 if __name__ == '__main__':
 
 
+    sim = '20-8'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
+    numbers = re.findall(r'\d+', sim) # Extract numbers from the simulation name
+
     # Scenario-related
     AP_NUMBER = 4
-    STA_NUMBER = 16
-    GRID_VALUE = 60
+    STA_NUMBER = int(numbers[1]) 
+    GRID_VALUE = int(numbers[0]) * 2
     SCENARIO_TYPE = 'grid'
 
-    sim = '30metros-16STAs'
     walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
                     [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
 

@@ -51,10 +51,10 @@ class MAPCsim:
         # TXOP-related
         self._TXOPwinNumber : np.ndarray                                  # Number of TXOP wins for each AP
         self._TXOPcollision : np.ndarray                                  # Number of TXOP collisions for each AP
-        self.preTX_overheadsEDCA = sim_config['preTX_overheadsEDCA']                      # Amount of time per TXOP before the data transmission begins using EDCA 
-        self.preTX_overheadsCSR = sim_config['preTX_overheadsCSR']                      # Amount of time per TXOP before the data transmission begins using CSR
-        self.EDCAoverheads = sim_config['EDCAoverheads']                                  # Total amount of EDCA overheads 
-        self.CSRoverheads = sim_config['CSRoverheads']                                  # Total amount of CSR overheads
+        self.preTX_overheadsEDCA = sim_config['overheads']['preTX_overheadsEDCA']                      # Amount of time per TXOP before the data transmission begins using EDCA 
+        self.preTX_overheadsCSR = sim_config['overheads']['preTX_overheadsCSR']                      # Amount of time per TXOP before the data transmission begins using CSR
+        self.EDCAoverheads = sim_config['overheads']['EDCAoverheads']                                  # Total amount of EDCA overheads 
+        self.CSRoverheads = sim_config['overheads']['CSRoverheads']                                  # Total amount of CSR overheads
 
         # CSR-related
         self.CGs_STAs : list                                            # C-SR compatible groups of STAs

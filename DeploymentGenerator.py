@@ -1,4 +1,5 @@
 import numpy as np
+import re
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
@@ -53,13 +54,15 @@ if __name__ == '__main__':
     # Start Timer
     start_time = time.time()
 
+    sim = '20-8'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
+    numbers = re.findall(r'\d+', sim) # Extract numbers from the simulation name
 
     # Scenario-related
     AP_NUMBER = 4
-    STA_NUMBER = 16
-    GRID_VALUE = 60
+    STA_NUMBER = int(numbers[1]) 
+    GRID_VALUE = int(numbers[0]) * 2
     SCENARIO_TYPE = 'grid'
-    sim = '30metros-16STAs'
+
     walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
                     [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
 
