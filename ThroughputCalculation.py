@@ -100,7 +100,6 @@ def plot_cdf(per_STA_EDCA_throughput_bianchi, DL_throughput_CSR_bianchi):
 
     plt.show()
     
-
 def init_pool_processes(h5_path, use_preloaded):
     """Load HDF5 data only if required by the simulation mode"""
     global STA_matrix_save, channelMatrix_save
@@ -145,9 +144,6 @@ if __name__ == '__main__':
     # Channel-related parameters
     MaxTxPower, NSC = TXpowerCalc(BW, NSS)
 
-    # For reproducibility
-    np.random.seed(1)  
-
     # Simulation Configuration
     sim_config = {
         'use_preloaded_deployments': True,
@@ -184,6 +180,7 @@ if __name__ == '__main__':
     # Simulation parameters for parallel processing
     ITERATIONS = 100
 
+    # For reproducibility
     seed_seq = SeedSequence(1)
     seeds = seed_seq.generate_state(ITERATIONS)
 
@@ -193,8 +190,7 @@ if __name__ == '__main__':
     # Pre-allocate result arrays
     per_STA_EDCA_throughput_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
     DL_throughput_CSR_bianchi = np.zeros((ITERATIONS, STA_NUMBER))
-
-    futures = []
+    
     max_workers = min(os.cpu_count(), ITERATIONS)  # Optimize worker count
 
     with ProcessPoolExecutor(
@@ -219,7 +215,7 @@ if __name__ == '__main__':
                 print(f"Error in iterations {iter_number}")
 
     plot_cdf(per_STA_EDCA_throughput_bianchi, DL_throughput_CSR_bianchi)
-    
+
     # # ################## Saving the results ##########################
     # # # Define the folder structure for saving
     # output_folder = os.path.join(os.getcwd(), 'Results', 'ThroughputCalculation', sim)
