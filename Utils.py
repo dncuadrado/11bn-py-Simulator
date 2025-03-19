@@ -68,7 +68,8 @@ def OverheadsCalc(EDCAaccessCategory):
     preTX_overheadsCSR = TMAPC_ICF + TSIFS + TMAPC_ICR + TSIFS + TMAPC_TF + TSIFS + TIME_PREAMBLE_DATA
     CSRoverheads = preTX_overheadsCSR + TSIFS + TBACK + AIFS + TE
 
-    return preTX_overheadsEDCA, preTX_overheadsCSR, EDCAoverheads, CSRoverheads
+    return {'preTX_overheadsEDCA':preTX_overheadsEDCA, 'preTX_overheadsCSR': preTX_overheadsCSR, 
+            'EDCAoverheads':EDCAoverheads, 'CSRoverheads':CSRoverheads}
 ####################################################################################################################
 
 # Function to calculate the AP-STA coordinates
