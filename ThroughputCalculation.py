@@ -5,7 +5,7 @@ import time
 from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm  # Import tqdm for progress bar
 from numpy.random import SeedSequence, default_rng
-from Utils import *
+import Utils as utils
 from DeploymentGenerator import deployment_generator
 import h5py
 import os
@@ -30,10 +30,7 @@ def throughput_calculation(sim_config, seed, show_plot= None, iter_number=None):
     else:
         AP_matrix, STA_matrix, sim_config['association'], sim_config['channelMatrix'] = deployment_generator(sim_config, seed)
 
-    # Overheads
-    preTX_overheadsEDCA, preTX_overheadsCSR, EDCAoverheads, CSRoverheads = OverheadsCalc(EDCAaccessCategory)
-
-    map_matrix, TxPowerMatrixTemp, comb_ok, _ = CG_creationTPC(AP_NUMBER, 
+    map_matrix, TxPowerMatrixTemp, comb_ok, _ = utils.CG_creationTPC(AP_NUMBER, 
                                                 STA_NUMBER, 
                                                 PN_DBM, 
                                                 NSC, 
@@ -50,12 +47,12 @@ def throughput_calculation(sim_config, seed, show_plot= None, iter_number=None):
     if len(TxPowerMatrix) != len(CGs_STAs):
         raise ValueError('TxPowerMatrix and CGs_STAs have different lengths')
     
-    per_STA_EDCA_throughput_bianchi = Throughput_EDCA_bianchi(AP_NUMBER, STA_NUMBER, association, channelMatrix, sim_config['MaxTxPower'],
+    per_STA_EDCA_throughput_bianchi = utils.Throughput_EDCA_bianchi(AP_NUMBER, STA_NUMBER, association, channelMatrix, sim_config['MaxTxPower'],
                                                             PN_DBM, NSC, NSS, TXOP_DURATION, 
-                                                            EDCAoverheads, EDCAaccessCategory)
+                                                            sim_config['overheads']['EDCAoverheads'], 'BE')
 
-    DL_throughput_CSR_bianchi = Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, association, CGs_STAs, TxPowerMatrix, channelMatrix, PN_DBM, NSC, NSS, TXOP_DURATION,
-                                                       CSRoverheads, EDCAaccessCategory)
+    DL_throughput_CSR_bianchi = utils.Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, association, CGs_STAs, TxPowerMatrix, channelMatrix, PN_DBM, NSC, NSS, TXOP_DURATION,
+                                                       sim_config['overheads']['CSRoverheads'], 'BE')
                                                   
     return per_STA_EDCA_throughput_bianchi, DL_throughput_CSR_bianchi
 
@@ -142,7 +139,7 @@ if __name__ == '__main__':
     FRAME_LENGTH = 12E3
 
     # Channel-related parameters
-    MaxTxPower, NSC = TXpowerCalc(BW, NSS)
+    MaxTxPower, NSC = utils.TXpowerCalc(BW, NSS)
 
     # Simulation Configuration
     sim_config = {
@@ -165,7 +162,7 @@ if __name__ == '__main__':
         'EVENT_NUMBER': int(1E5), # Number of events considered for traffic generation
         'seed': 1,
         'output_dir': os.path.join(os.getcwd(), 'traffic datasets', sim),
-        'overheads' : ''
+        'overheads' : utils.OverheadsCalc('BE') 
     }
 
     # Define output folder
