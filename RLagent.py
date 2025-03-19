@@ -1,8 +1,10 @@
 import os
 import h5py
 import numpy as np
+from numpy.random import SeedSequence
+import time
 import re
-from Utils import *
+import Utils as utils
 from MAPCsim import *
 from CustomEnv import * # my Custom environment
 from TrafficGenerator import traffic_generator
@@ -35,7 +37,7 @@ import gymnasium as gym
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.results_plotter import load_results, ts2xy
 
-def create_env(sim_config, map_matrix, TxPowerMatrixTemp, comb_ok, datarate, monitor_gym=False):
+def create_env(traffic_config, sim_config, map_matrix, TxPowerMatrixTemp, comb_ok, datarate, seed, monitor_gym=False):
     # Creating the simulator instance  
 
     simulator = MAPCsim(sim_config)  # new "MAPC simulator" object
@@ -44,55 +46,41 @@ def create_env(sim_config, map_matrix, TxPowerMatrixTemp, comb_ok, datarate, mon
     simulator.TxPowerMatrix = TxPowerMatrixTemp  # Entire Tx power matrix (all posible combinations)
     simulator.comb_ok = comb_ok # Combinations ok 
     simulator.datarate = datarate # Data rate for each combination (proportional tx rate)
-    simulator.accessCategory = sim_config['EDCAaccessCategory']  # Access category of devices in the network
+    simulator.accessCategory = traffic_config['EDCAaccessCategory']  # Access category of devices in the network
     simulator.timestamp_to_stop = sim_config['learning_timestamp_to_stop'] # training episode duration
 
     # Creating the custom environment
-    env = CustomEnv(sim_config, simulator)  
+    env = CustomEnv(traffic_config, sim_config, simulator)  
     # check_env(env)  # Check the environment
-    env.reset(seed=sim_config['seed'])
+    env.reset(seed=seed)  # Reset
     if monitor_gym:
         env = Monitor(env, learning_config['log_dir'])  # Wrap the environment
     return env
 
-def training(sim_config, learning_config, iter_number=None):
+def training(traffic_config, sim_config, learning_config, iter_number=None):
     """
-    Simulates one iterations and returns the delay vectors for EDCA, MNP, OP, and TAT.
-
-    Parameters:
-    sim (str): Simulation identifier.
-    traffic_type (str): Type of traffic (e.g., 'Poisson', 'Bursty', 'CBR').
-    traffic_load (str): Load of the traffic (e.g., 'low', 'medium', 'high').
-    iter_number (int): Number of the current iteration.
-    STA_matrix_save (np.ndarray): Pre-saved STA matrix for all iter_number.
-    channelMatrix_save (np.ndarray): Pre-saved channel matrix for all iter_number.
-    RSSI_dB_vector_to_export_save (np.ndarray): Pre-saved RSSI vector for all iter_number.
-
-    Returns:
-
+    Train the RL agent using the specified configuration
     """
 
+    seed = sim_config['seed']
 
-    sim_config['EDCAaccessCategory'] = {'Poisson': 'BE', 'Bursty': 'BE', 'CBR': 'VI'}.get(sim_config['traffic_type'], None)
-    # Check if the traffic type is valid
-    if sim_config['EDCAaccessCategory'] is None:
-        raise ValueError(f"Invalid traffic type: {sim_config['traffic_type']}. Valid types are 'Poisson', 'Bursty', 'CBR'.")
+    # Set the seed
+    np.random.seed(seed)
 
     # Deployment-dependent data
-    AP_matrix, STA_matrix, sim_config['association'], sim_config['channelMatrix'] = deployment_generator(sim_config)
+    _, _, sim_config['association'], sim_config['channelMatrix'] = deployment_generator(sim_config, seed)
 
-    if iter_number is not None:
-        STA_matrix = STA_matrix_save[:,:,iter_number]
-        channelMatrix = channelMatrix_save[:,:,iter_number]
+    if sim_config['use_preloaded_deployments']:
+        # ### Load deployment data
+        h5file_deployments_path = os.path.join(os.getcwd(),'deployments datasets', sim, 'deployment_datasets.h5')
+        with h5py.File(h5file_deployments_path, 'r') as f:
+            STA_matrix_save = f['STA_matrix_save'][:]
+            channelMatrix_save = f['channelMatrix_save'][:]
 
-    # Overheads
-    sim_config['preTX_overheadsEDCA'], sim_config['preTX_overheadsCSR'], sim_config['EDCAoverheads'], sim_config['CSRoverheads'] = OverheadsCalc(sim_config['EDCAaccessCategory'])
+        STA_matrix = STA_matrix_save[:, :, iter_number]
+        sim_config['channelMatrix'] = channelMatrix_save[:, :, iter_number]
 
-    sim_config['per_STA_EDCA_throughput_bianchi'] = Throughput_EDCA_bianchi(sim_config['AP_NUMBER'], sim_config['STA_NUMBER'], sim_config['association'], sim_config['channelMatrix'], sim_config['MaxTxPower'],
-                                                            sim_config['PN_DBM'], sim_config['NSC'], sim_config['NSS'], sim_config['TXOP_DURATION'], 
-                                                            sim_config['EDCAoverheads'], sim_config['EDCAaccessCategory'])
-
-    map_matrix, TxPowerMatrixTemp, comb_ok, datarate = CG_creationTPC(sim_config['AP_NUMBER'], 
+    map_matrix, TxPowerMatrixTemp, comb_ok, datarate = utils.CG_creationTPC(sim_config['AP_NUMBER'], 
                                                 sim_config['STA_NUMBER'], 
                                                 sim_config['PN_DBM'], 
                                                 sim_config['NSC'], 
@@ -115,9 +103,9 @@ def training(sim_config, learning_config, iter_number=None):
     os.makedirs(learning_config['log_dir'], exist_ok=True)
 
     env = make_vec_env(
-    lambda: create_env(sim_config, map_matrix, TxPowerMatrixTemp, comb_ok, datarate, monitor_gym=True), 
-    n_envs=learning_config['parallel_envs'], 
-    vec_env_cls=SubprocVecEnv   # vec_env_cls = DummyVecEnv or SubprocVecEnv
+        lambda: create_env(traffic_config, sim_config, map_matrix, TxPowerMatrixTemp, comb_ok, datarate, seed=np.random.randint(1, int(1E8)), monitor_gym=True), 
+        n_envs=learning_config['parallel_envs'], 
+        vec_env_cls=SubprocVecEnv   # vec_env_cls = DummyVecEnv or SubprocVecEnv
     )
 
     policy_kwargs = dict(net_arch=dict(pi=[128, 128], vf=[128, 128]))
@@ -132,27 +120,27 @@ def training(sim_config, learning_config, iter_number=None):
     ) 
 
 
-    model = MaskablePPO("MultiInputPolicy", env, verbose=0, tensorboard_log=os.path.join(learning_config['log_dir'], "tensorboard", logging_run.id), seed=sim_config['seed'])
+    model = MaskablePPO("MlpPolicy", env, verbose=0, tensorboard_log=os.path.join(learning_config['log_dir'], "tensorboard", logging_run.id), seed=sim_config['seed'])
 
 
     # maskeable_eval_callback = MaskableEvalCallback(env, best_model_save_path=os.path.join(learning_config['log_dir'], "models", logging_run.id),
     #                          log_path=learning_config['log_dir'], eval_freq=1000,
     #                          deterministic=False, render=False)
     
-    # # Add WandbCallback
-    # logging_callback = WandbCallback(
-    #     gradient_save_freq=1000*learning_config['parallel_envs'],
-    #     model_save_path=os.path.join(learning_config['log_dir'], "models", logging_run.id),
-    #     model_save_freq=1000*learning_config['parallel_envs'],
-    #     verbose=2,
-    # )
+    # Add WandbCallback
+    logging_callback = WandbCallback(
+        gradient_save_freq=1000*learning_config['parallel_envs'],
+        model_save_path=os.path.join(learning_config['log_dir'], "models", logging_run.id),
+        model_save_freq=1000*learning_config['parallel_envs'],
+        verbose=2,
+    )
 
     # callbacklist = CallbackList([logging_callback, maskeable_eval_callback])
 
     # Train the model
     model.learn(
         total_timesteps=learning_config['num_episodes'],
-        callback=None
+        callback=logging_callback
     )
 
     # # Save the model after training
@@ -181,12 +169,10 @@ def evaluation(map_matrix, TxPowerMatrixTemp, comb_ok, datarate, STAs_arrivals_m
     return env
 
 
-
-
-
-
 if __name__ == '__main__':
 
+    # Start Timer
+    start_time = time.time()
 
     sim = '20-8'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
     numbers = re.findall(r'\d+', sim) # Extract numbers from the simulation name
@@ -208,21 +194,23 @@ if __name__ == '__main__':
     NSS = 2
     FRAME_LENGTH = 12E3
 
-    ITERATIONS = 1
-
     ### Channel-related parameters
-    MaxTxPower, NSC = TXpowerCalc(BW, NSS)
+    MaxTxPower, NSC = utils.TXpowerCalc(BW, NSS)
 
-
-    # ### Load deployment data
-    h5file_deployments_path = os.path.join(os.getcwd(),'deployments datasets', sim, 'deployment_datasets.h5')
-    with h5py.File(h5file_deployments_path, 'r') as f:
-        STA_matrix_save = f['STA_matrix_save'][:]
-        channelMatrix_save = f['channelMatrix_save'][:]
-
+    # Traffic Configuration 
+    traffic_config = {
+        'traffic_profiles': {    # Define the traffic profiles
+            'A' : {'traffic_model': 'Poisson', 'traffic_load' : 100, 'latency': 1E-4},
+            'B' : {'traffic_model': 'Bursty', 'traffic_load' : 50, 'latency': 2E-4},
+            'C' : {'traffic_model': 'CBR', 'traffic_load' : 25, 'fps': 60, 'latency': 5E-4}  # not used by now
+    },
+        'EDCAaccessCategory' : 'BE'
+    }  
 
     # Simulation Configuration
     sim_config = {
+        'use_preloaded_deployments': True,
+        'use_preloaded_traffic': False,
         'AP_NUMBER': AP_NUMBER,
         'STA_NUMBER': STA_NUMBER,
         'SCENARIO_TYPE': SCENARIO_TYPE,
@@ -238,8 +226,10 @@ if __name__ == '__main__':
         'training_flag': True,
         'timestamp_to_stop': 5, # seconds
         'FRAME_LENGTH': FRAME_LENGTH,
-        'EVENT_NUMBER': 30000, # Number of events considered for traffic generation
-        'seed': 1
+        'EVENT_NUMBER': int(3E4), # Number of events considered for traffic generation
+        'seed': 1,
+        'output_dir': os.path.join(os.getcwd(), 'Results', sim),
+        'overheads' : utils.OverheadsCalc(traffic_config['EDCAaccessCategory'])   
     }
 
     # Learning Configuration
@@ -251,7 +241,7 @@ if __name__ == '__main__':
     }  
     
     # Simulate the iterations
-    training(sim_config, learning_config, iter_number=0)
+    training(traffic_config, sim_config, learning_config, iter_number=0)
 
 
 

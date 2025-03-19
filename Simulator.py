@@ -83,6 +83,9 @@ def simulate_iterations(traffic_config, sim_config, learning_config, seed, iter_
             STAs_arrivals_matrix = [h5file[key][:] for key in h5file.keys()]
     else:
         # # # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
+        # Assign a traffic profile to each STA
+        traffic_config['traffic_profile_perSTA'] = np.random.choice(['A','B'], size=STA_NUMBER).tolist()
+
         STAs_arrivals_matrix = traffic_generator(
                 traffic_config,
                 sim_config
@@ -98,7 +101,7 @@ def simulate_iterations(traffic_config, sim_config, learning_config, seed, iter_
     simEDCA.timestamp_to_stop = sim_config['timestamp_to_stop']
     simEDCA.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
     simEDCA.simulation_system = 'EDCA'
-    simEDCA.accessCategory = sim_config['EDCAaccessCategory']
+    simEDCA.accessCategory = traffic_config['EDCAaccessCategory']
     simEDCA.InitSettings()  # Initializing STAs
     simEDCA.Run()
 
@@ -111,7 +114,7 @@ def simulate_iterations(traffic_config, sim_config, learning_config, seed, iter_
     simMNP.scheduler = 'MNP'
     simMNP.CGs_STAs = CGs_STAs
     simMNP.TxPowerMatrix = TxPowerMatrix
-    simMNP.accessCategory = sim_config['EDCAaccessCategory']
+    simMNP.accessCategory = traffic_config['EDCAaccessCategory']
     simMNP.InitSettings()  # Initializing STAs
     simMNP.Run()
 
@@ -123,7 +126,7 @@ def simulate_iterations(traffic_config, sim_config, learning_config, seed, iter_
     simOP.scheduler = 'OP'
     simOP.CGs_STAs = CGs_STAs
     simOP.TxPowerMatrix = TxPowerMatrix
-    simOP.accessCategory = sim_config['EDCAaccessCategory']
+    simOP.accessCategory = traffic_config['EDCAaccessCategory']
     simOP.InitSettings()  # Initializing STAs
     simOP.Run()
 
@@ -135,7 +138,7 @@ def simulate_iterations(traffic_config, sim_config, learning_config, seed, iter_
     simTAT.scheduler = 'TAT'
     simTAT.CGs_STAs = CGs_STAs
     simTAT.TxPowerMatrix = TxPowerMatrix
-    simTAT.accessCategory = sim_config['EDCAaccessCategory']
+    simTAT.accessCategory = traffic_config['EDCAaccessCategory']
     simTAT.alpha = 0.5
     simTAT.beta = 0.5
     simTAT.InitSettings()  # Initializing STAs
@@ -189,7 +192,7 @@ if __name__ == "__main__":
     # Start Timer
     start_time = time.time()
 
-    sim = '20-8'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
+    sim = '30-8'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
     numbers = re.findall(r'\d+', sim) # Extract numbers from the simulation name
 
     # Scenario-related
@@ -221,32 +224,20 @@ if __name__ == "__main__":
     # Deployment data path
     h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
 
-    # Define the traffic profiles
-    traffic_profiles = {
-        'A' : {'traffic_model': 'Poisson', 'traffic_load' : 100, 'latency': 1E-4},
-        'B' : {'traffic_model': 'Bursty', 'traffic_load' : 50, 'latency': 2E-4},
-        'C' : {'traffic_model': 'CBR', 'traffic_load' : 25, 'fps': 60, 'latency': 5E-4}
-    }
-
-    # Assign a traffic profile to each STA
-    traffic_profile_perSTA = np.random.choice(['A','B','C'], size=STA_NUMBER).tolist()
-
     # Traffic Configuration 
     traffic_config = {
-        'traffic_profiles': traffic_profiles,
-        'traffic_profile_perSTA': traffic_profile_perSTA,
-        'EDCAaccessCategory' : [
-            {'Poisson': 'BE',
-            'Bursty': 'BE',
-            'CBR': 'VI'
-            }.get(traffic_profiles[traffic_profile_perSTA[i]]['traffic_model'], None) 
-            for i in range(STA_NUMBER)]
+        'traffic_profiles': {    # Define the traffic profiles
+            'A' : {'traffic_model': 'Poisson', 'traffic_load' : 100, 'latency': 1E-4},
+            'B' : {'traffic_model': 'Bursty', 'traffic_load' : 50, 'latency': 2E-4},
+            'C' : {'traffic_model': 'CBR', 'traffic_load' : 25, 'fps': 60, 'latency': 5E-4}  # not used by now
+    },
+        'EDCAaccessCategory' : 'BE'
     }  
     
     # Simulation Configuration
     sim_config = {
-        'use_preloaded_deployments': True,
-        'use_preloaded_traffic': True,
+        'use_preloaded_deployments': False,
+        'use_preloaded_traffic': False,
         'AP_NUMBER': AP_NUMBER,
         'STA_NUMBER': STA_NUMBER,
         'SCENARIO_TYPE': SCENARIO_TYPE,
@@ -264,19 +255,8 @@ if __name__ == "__main__":
         'FRAME_LENGTH': FRAME_LENGTH,
         'EVENT_NUMBER': int(1E5), # Number of events considered for traffic generation
         'seed': 1,
-        'output_dir': os.path.join(os.getcwd(), 'traffic datasets', sim),
-        'overheads' : {
-            key: [
-                utils.OverheadsCalc(traffic_config['EDCAaccessCategory'][i])[idx]
-                for i in range(STA_NUMBER)
-            ]
-            for idx, key in enumerate([
-                'preTX_overheadsEDCA',
-                'preTX_overheadsCSR',
-                'EDCAoverheads',
-                'CSRoverheads'
-            ])
-        }
+        'output_dir': os.path.join(os.getcwd(), 'Results', sim),
+        'overheads' : utils.OverheadsCalc(traffic_config['EDCAaccessCategory'])   
     }
 
     # Learning Configuration

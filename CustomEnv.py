@@ -11,11 +11,12 @@ Distribution.set_default_validate_args(False)
 
 class CustomEnv(gym.Env):
     """Custom Environment that follows gym interface."""
-    def __init__(self, sim_config, simulator):
+    def __init__(self, traffic_config, sim_config, simulator):
         super().__init__()
 
         # Simulation configuration
         self.sim_config = sim_config
+        self.traffic_config = traffic_config
 
         # Set the duration of each episode depending on whether it is a training or validation episode
         if self.sim_config['training_flag'] == True:
@@ -95,39 +96,15 @@ class CustomEnv(gym.Env):
         # Seed the environment if seed is provided
         super().reset(seed=seed)  #
 
-        # if self.episode_counter == 5:
-        #     AP_matrix, STA_matrix, self.sim_config['association'], self.sim_config['channelMatrix'] = deployment_generator(self.sim_config)
-
-        #     self.sim_config['per_STA_EDCA_throughput_bianchi'] = Throughput_EDCA_bianchi(self.sim_config['AP_NUMBER'], self.sim_config['STA_NUMBER'], self.sim_config['association'], self.sim_config['channelMatrix'], self.sim_config['MaxTxPower'],
-        #                                                     self.sim_config['PN_DBM'], self.sim_config['NSC'], self.sim_config['NSS'], self.sim_config['TXOP_DURATION'], 
-        #                                                     self.sim_config['EDCAoverheads'], self.sim_config['EDCAaccessCategory'])
-
-        #     map_matrix, TxPowerMatrixTemp, comb_ok, datarate = CG_creationTPC(self.sim_config['AP_NUMBER'], 
-        #                                                 self.sim_config['STA_NUMBER'], 
-        #                                                 self.sim_config['PN_DBM'], 
-        #                                                 self.sim_config['NSC'], 
-        #                                                 self.sim_config['NSS'], 
-        #                                                 self.sim_config['association'], 
-        #                                                 self.sim_config['channelMatrix'], 
-        #                                                 self.sim_config['MaxTxPower'], 
-        #                                                 CG_filter='on', TPC_method='PSO')    # TPC Optimization method: None, 'PSO', 'IPOPT', 'DE'
-
-        #     self.simulator.CGs_STAs = map_matrix         # Entire groups matrix (all posible combinations)
-        #     self.simulator.TxPowerMatrix = TxPowerMatrixTemp  # Entire Tx power matrix (all posible combinations)
-        #     self.simulator.comb_ok = comb_ok # Combinations ok 
-        #     self.simulator.datarate = datarate # Data rate for each combination
-        #     self.episode_counter = 0
-
         if STAs_arrivals_matrix is None:
+            # Set the seed
+            np.random.seed(seed)
+            self.traffic_config['traffic_profile_perSTA'] = np.random.choice(['A','B'], size=self.sim_config['STA_NUMBER']).tolist()
+
             STAs_arrivals_matrix = traffic_generator(
-                        self.sim_config['STA_NUMBER'], # Number of STAs
-                        self.sim_config['validation_flag'], # Validation flag
-                        self.sim_config['traffic_type'], # Traffic type
-                        self.sim_config['traffic_load'], # Traffic load
-                        self.sim_config['FRAME_LENGTH'], # Packet length
-                        self.sim_config['per_STA_EDCA_throughput_bianchi'], # EDCA throughput per STA                                    
-                        self.sim_config['EVENT_NUMBER']# Number of events considered for traffic generation
-                        )  
+                self.traffic_config,
+                self.sim_config
+                )  
 
         # Validate traffic
         if any(STAs_arrivals_matrix[i][-1] < self.learning_timestamp_to_stop for i in range(self.sim_config['STA_NUMBER'])):

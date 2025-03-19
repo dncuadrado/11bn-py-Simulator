@@ -360,7 +360,7 @@ class MAPCsim:
 
     def InitSettings(self):
         """Initialization. Restarts the parameters to start a new simulation"""
-        
+     
         if self.accessCategory == 'VO':
             self._CWmin = 4
             self._maxBackoffStage = 1
