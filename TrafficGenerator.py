@@ -180,17 +180,13 @@ def simulate_iterations(traffic_config, sim_config, iter_number, seed):
     else:
         AP_matrix, STA_matrix, sim_config['association'], sim_config['channelMatrix'] = deployment_generator(sim_config, seed)
 
-    traffic_profile_perSTA = np.random.choice(['A','B','C'], size=STA_NUMBER).tolist()
-    traffic_config['traffic_profile_perSTA'] = traffic_profile_perSTA
-    traffic_config['EDCAaccessCategory'] = [
-            {'Poisson': 'BE',
-            'Bursty': 'BE',
-            'CBR': 'VI'
-            }.get(traffic_config['traffic_profiles'][traffic_profile_perSTA[i]]['traffic_model'], None) 
-            for i in range(sim_config['STA_NUMBER'])]
+    traffic_config['traffic_profile_perSTA'] = np.random.choice(['A','B'], size=STA_NUMBER).tolist()
 
     # # # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
-    STAs_arrivals_matrix = traffic_generator(traffic_config, sim_config)
+    STAs_arrivals_matrix = traffic_generator(
+                traffic_config,
+                sim_config
+                ) 
     
     ### Uncoment to save the delay vectors into HDF5 files for each iterations, traffic type, and traffic load in a structured directory
     save_to_h5(sim_config, traffic_config, STAs_arrivals_matrix, iter_number)
@@ -240,15 +236,15 @@ if __name__ == "__main__":
     # Deployment data path
     h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
 
+    # Traffic Configuration 
     traffic_config = {
-        'traffic_profiles': {
-        'A' : {'traffic_model': 'Poisson', 'traffic_load' : 100, 'latency': 1E-4},
-        'B' : {'traffic_model': 'Bursty', 'traffic_load' : 50, 'latency': 2E-4},
-        'C' : {'traffic_model': 'CBR', 'traffic_load' : 25, 'fps': 60, 'latency': 5E-4}
+        'traffic_profiles': {    # Define the traffic profiles
+            'A' : {'traffic_model': 'Poisson', 'traffic_load' : 100, 'latency': 1E-4},
+            'B' : {'traffic_model': 'Bursty', 'traffic_load' : 50, 'latency': 2E-4},
+            'C' : {'traffic_model': 'CBR', 'traffic_load' : 25, 'fps': 60, 'latency': 5E-4}  # not used by now
     },
-        'traffic_profile_perSTA': '',
-        'EDCAaccessCategory' : ''
-    }  
+        'EDCAaccessCategory' : 'BE'
+    }   
     
     # Simulation Configuration
     sim_config = {
@@ -271,7 +267,7 @@ if __name__ == "__main__":
         'EVENT_NUMBER': int(1E5), # Number of events considered for traffic generation
         'seed': 1,
         'output_dir': os.path.join(os.getcwd(), 'traffic datasets', sim),
-        'overheads' : ''
+        'overheads' : utils.OverheadsCalc(traffic_config['EDCAaccessCategory'])
     }
 
     # Run simulations with progress bar
