@@ -150,8 +150,9 @@ def training(traffic_config, sim_config, learning_config, iter_number=None):
 
 
 def evaluation(map_matrix, TxPowerMatrixTemp, comb_ok, datarate, STAs_arrivals_matrix, sim_config, learning_config, model):
-        # Create a Gym-compatible environment
-
+    """
+    Evaluate the trained model using the specified configuration
+    """
     
     # env = make_vec_env(create_env, n_envs=learning_config['parallel_envs'], vec_env_cls=DummyVecEnv)   # vec_env_cls = DummyVecEnv or SubprocVecEnv
     env = create_env(sim_config, map_matrix, TxPowerMatrixTemp, comb_ok, datarate, monitor_gym=False)
@@ -174,7 +175,7 @@ if __name__ == '__main__':
     # Start Timer
     start_time = time.time()
 
-    sim = '20-8'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
+    sim = '30-16'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
     numbers = re.findall(r'\d+', sim) # Extract numbers from the simulation name
 
     # Scenario-related
