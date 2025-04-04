@@ -355,15 +355,12 @@ def MCS_cal_PER_001(SINR_db):
     SINR_db (float): SINR value in dB
     
     Returns:
-    MCS (int): Modulation and Coding Scheme index (NaN if invalid)
-    N_bps (int): Number of coded bits per subcarrier per stream (NaN if invalid)
-    Rc (float): Rate of coding (NaN if invalid)
+    MCS (int): Modulation and Coding Scheme index (-1 if invalid)
+    N_bps (int): Number of coded bits per subcarrier per stream (1 if invalid)
+    Rc (float): Rate of coding (1 / 2 if invalid)
     """
-    if SINR_db < 14.2862:
-        MCS = np.nan
-        N_bps = np.nan
-        Rc = np.nan
-    elif 14.2862 <= SINR_db < 19.5154:
+
+    if 14.2862 <= SINR_db < 19.5154:
         MCS = int(0)
         N_bps = 1
         Rc = 1 / 2
@@ -420,9 +417,10 @@ def MCS_cal_PER_001(SINR_db):
         N_bps = 12
         Rc = 5 / 6
     else:
-        MCS = np.nan
-        N_bps = np.nan
-        Rc = np.nan
+        # invalid MCS 
+        MCS = int(-1)
+        N_bps = 1
+        Rc = 1 / 2
 
     return MCS, N_bps, Rc
 ####################################################################################################################
@@ -463,7 +461,7 @@ def power_allocation(N, noise_power, H, P_max, NSC, NSS, TPC_method):
         
         for i in range(N):
             MCS, N_bps, Rc = MCS_cal_PER_001(sinr_dB[i])
-            if np.isnan(MCS):
+            if MCS == -1:
                 rates[i] = 0
             else:
                 rates[i] = (NSC * N_bps * Rc * NSS) / (T_DFT + T_GI)
@@ -695,12 +693,10 @@ def elapsed_time_tx(NSC, N_bps, Rc, NSS, tx_Packets):
     return time_tx
 ####################################################################################################################
 
-def generate_combinations(AP_NUMBER, STA_NUMBER, association):
+def generate_combinations(AP_NUMBER, STA_NUMBER, association, CG_size):
     """
     Generates all possible combinations of AP-STAs for a given association.
     """
-    # Maximum number of APs per group. CG_size can reduce the number of transmitters per combination. 
-    CG_size = AP_NUMBER 
 
     placeholder = -1
     # Step 1: Generate all possible combinations of STAs for each AP, including np.nan for NaN replacement
@@ -748,14 +744,14 @@ def get_association(association, STAs):
     return APs
 
 # Function to compute the C-SR groups and the corresponding power allocation
-def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channelMatrix, MaxTxPower, CG_filter, TPC_method): 
+def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channelMatrix, MaxTxPower, CG_filter, TPC_method, CG_size): 
                    
     # Initialization
     noise_power = 10**(PN_DBM / 10)
     MaxTxPower = 10**(MaxTxPower / 10)
 
     # Function to generate all possible combinations of AP-STAs for a given association
-    map_matrix = generate_combinations(AP_NUMBER, STA_NUMBER, association)
+    map_matrix = generate_combinations(AP_NUMBER, STA_NUMBER, association, CG_size)
 
     # Create TxPowerMatrixTemp with the same shape as map_matrix
     TxPowerMatrixTemp = [np.full_like(row, MaxTxPower, dtype=float) if i<STA_NUMBER else np.full_like(row, np.nan, dtype=float) for i, row in enumerate(map_matrix)]
@@ -793,10 +789,10 @@ def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channel
 
         for k, _ in enumerate(STAs):
             MCS, N_bps, Rc = MCS_cal_PER_001(SINR_db[k])
-            if np.isnan(MCS):
+            if MCS == -1:
                 datarateTemp[i][k] = 0 #SINR under the threshold
             else:
-                datarateTemp[i][k] = N_bps * Rc * NSS  # Number of bits to code a symbol
+                datarateTemp[i][k] = N_bps * Rc / (12 * 5/6)  # Number of bits to code a symbol
                 # datarateTemp[i][k] = NSC * N_bps * Rc * NSS / (12.8e-6 + 0.8e-6) # Datarate in bps
             
             # To filter out combinations using a specific criterium 
@@ -819,7 +815,7 @@ def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channel
                 raise ValueError(f'Invalid CG_filter value: {CG_filter}. Choose "on" or "off"')
         if discard_list[i] == True:
             comb_ok[i] = True
-            datarate[i] = np.prod(datarateTemp[i])
+            datarate[i] = len(datarateTemp[i])*np.prod(datarateTemp[i])
     
     return map_matrix, TxPowerMatrixTemp, comb_ok, datarate
 ####################################################################################################################
@@ -961,7 +957,7 @@ def Throughput_EDCA_bianchi(AP_NUMBER, STA_NUMBER, association, channelMatrix, M
         # Probability of STA_kk being selected
         p_STA = 1 / (AP_NUMBER * len(association[ap_indices[0]]))
         
-        if np.isnan(MCS[kk]):
+        if MCS[kk] == -1:
             raise ValueError("Invalid MCS")
         
         # Calculate received packets
@@ -997,9 +993,9 @@ def Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, association, CGs_STAs, TxPower
         
         H = channelMatrix[np.ix_(STAs, APs)]
     
-        MCS = np.full(len(STAs), np.nan)
-        N_bps = np.full(len(STAs), np.nan)
-        Rc = np.full(len(STAs), np.nan)
+        MCS = np.full(len(STAs), -1)
+        N_bps = np.full(len(STAs), 1)
+        Rc = np.full(len(STAs), 1/2)
         
         P = TxPowerMatrix[i]
         SINR_db = 10 * np.log10((P * np.diag(H)) / (noise_power + np.sum(H * P, axis=1) - np.diag(H) * P))
@@ -1008,7 +1004,7 @@ def Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, association, CGs_STAs, TxPower
             # Assuming MCS_cal_PER_001 is a function that calculates MCS, N_bps, and Rc based on SINR_db
             MCS[k], N_bps[k], Rc[k] = MCS_cal_PER_001(SINR_db[k])
 
-            if np.isnan(MCS[k]):
+            if MCS[k] == -1:
                 rx_packets[i][k] = 0
             else:
                 # Assuming tx_packets is a function that calculates the number of packets transmitted
