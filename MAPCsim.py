@@ -1,5 +1,5 @@
 import numpy as np
-from Utils import MCS_cal_PER_001, tx_packets, elapsed_time_tx, get_association
+from Utils import MCS_cal_PER_001, tx_packets, elapsed_time_tx, get_association, CG_creationTPC
 import copy
 
 class MAPCsim:
@@ -8,6 +8,8 @@ class MAPCsim:
     """
 
     def __init__(self, sim_config):
+
+        self.sim_config = sim_config
 
         # System-related
         self._TXOP_DURATION = sim_config['TXOP_DURATION']                              # Duration of a TXOP
@@ -20,7 +22,14 @@ class MAPCsim:
         self.AP_NUMBER = sim_config['AP_NUMBER']                                                # Number of APs                                                   
         self.STA_NUMBER = sim_config['STA_NUMBER']                                              # Number of STAs
         self._association = sim_config['association']                                   # Association matrix
-        self._channelMatrix = sim_config['channelMatrix']                               # Channel matrix
+        self.channel_matrix = np.zeros((self.STA_NUMBER, self.AP_NUMBER))               # Channel matrix
+        self.channel_matrix_fading = np.zeros((self.STA_NUMBER, self.AP_NUMBER))                   # Channel matrix
+        
+        self.txops_between_sounding = int(10)
+        self.txop_counter_for_sounding = int(0)
+        self.sounding_overheads = 0
+        
+
         
         # Simulation-related
         self.sim_timeline = 0                                                # Simulation timeline
@@ -34,6 +43,9 @@ class MAPCsim:
         
         self._firstPosTimestamp : np.ndarray                                # Stores the timestamp of the first non-transmitted packet of each STA
         self._firstPosPosition : np.ndarray                                 # Stores the position of the first non-transmitted packet of each STA
+
+
+
 
         # Simulation-related
         self.simulation_system : str                                      # Simulation system -> EDCA or CSR
@@ -53,14 +65,15 @@ class MAPCsim:
         self._TXOPcollision : np.ndarray                                  # Number of TXOP collisions for each AP
         self.preTX_overheadsEDCA = sim_config['overheads']['preTX_overheadsEDCA']                      # Amount of time per TXOP before the data transmission begins using EDCA 
         self.preTX_overheadsCSR = sim_config['overheads']['preTX_overheadsCSR']                      # Amount of time per TXOP before the data transmission begins using CSR
+        self.info_overheadsCSR = sim_config['overheads']['info_overheadsCSR']                            # Amount of time per TXOP for the information exchange in CSR
         self.EDCAoverheads = sim_config['overheads']['EDCAoverheads']                                  # Total amount of EDCA overheads 
         self.CSRoverheads = sim_config['overheads']['CSRoverheads']                                  # Total amount of CSR overheads
 
         # CSR-related
+        self.map_matrix : np.ndarray                                      # Matrix with the mapping of the STAs to the APs
         self.CGs_STAs : list                                            # C-SR compatible groups of STAs
         self.TxPowerMatrix : list                                 # Transmission power matrix
         self.comb_ok : np.ndarray                                 # Combination vector to indicate whether the combination is selected or not
-        self.datarate : np.ndarray                                 # Vector that contains the proportional data rate per group
         self.scheduler : str                            # scheduling: - Number of packets: 'MNP' 
                                                         #             - Oldest packet: 'OP'
                                                         #             - Random selection: 'Random'
@@ -70,12 +83,17 @@ class MAPCsim:
         self.beta = 0.5                                                   # Beta value for TAT. Default value is 0.5
         
         # Results
+        self.nominal_data_rate : float                                   # Nominal data rate of the TXOP
+        self.last_txop_queue_sizes = np.zeros(self.STA_NUMBER, dtype=int)  # Queue sizes at the last TXOP
         self.per_TXOP_STA_tx_packets : np.ndarray                         # Number of packets transmitted per STA per TXOP
         self.STAselectionCounter : np.ndarray                             # Counter for the number of times each STA is selected
         self.throughput_sim : np.ndarray                                  # Throughput of each STA
         self.delay_per_STA : list                                         # Delay of each STA
         self.delayvector : list                                           # Delay matrix (all STAs)         
         self.APcollision_prob : np.ndarray                                # Collision probability of each AP
+
+        self.suc_TXOPs = int(0)  # Counter for successful transmissions
+        self.priority_selection_counter = np.zeros((self.STA_NUMBER,), dtype=int)  # Priority selection for each STA
 
     def UpdateAP(self):
         """
@@ -101,9 +119,6 @@ class MAPCsim:
             # Update the first position timestamp and position
             self._firstPosPosition[STA_rx] = np.argmax(self._STA_queue_state[STA_rx])
             self._firstPosTimestamp[STA_rx] = self.STA_queue_timeline[STA_rx][self._firstPosPosition[STA_rx]]
-            
-            # Update the number of tx packet in the current TXOP
-            self.per_TXOP_STA_tx_packets[STA_rx] = len(rx_vector_pos)
 
         # Update the number of times each STA is selected    
         self.STAselectionCounter[STA_rx] += 1
@@ -114,7 +129,7 @@ class MAPCsim:
         """
         if  self.simulation_system == 'EDCA':
             Tc = 56E-6 + 16E-6 + 48E-6 + self._AIFS + 9E-6;      # collision duration -----> Tc = RTS + SIFS + CTS + AIFS + Te
-        elif self.simulation_system == 'CSR':
+        elif (self.simulation_system == 'CSR') or (self.simulation_system == 'RL'):
             Tc = 74.4E-6 + 16e-6 + 88E-6 + self._AIFS + 9e-6;      # collision duration -----> Tc = MAPC_ICF + SIFS + MAPC_ICR + AIFS + Te
         
         # Extract the minimum backoff value among the APs with packets
@@ -199,7 +214,7 @@ class MAPCsim:
                 STA_rx = np.atleast_1d(self._association[self.TXOPwinner][STAidx])
 
                 APs = np.atleast_1d(self.TXOPwinner)
-            else:
+            elif self.simulation_system == 'CSR':
 
                 # Initialize variables
                 CGs = copy.deepcopy(self.CGs_STAs)
@@ -276,12 +291,13 @@ class MAPCsim:
         Transmission time calculation.
         """
         # Initialize variables
-        agg_packets = np.zeros(len(STA_rx), dtype=int)
-        tx_Packets = np.zeros(len(STA_rx), dtype=int)
+        # agg_packets = np.zeros(len(STA_rx), dtype=int)
+        # tx_Packets = np.zeros(len(STA_rx), dtype=int)
         temp_elapsed_time = np.zeros(len(STA_rx))
+        agg_packets_group = []  # List to store the number of aggregated packets for each STA
 
         # Channel matrix for the corresponding APs and STA_rx
-        H = self._channelMatrix[np.ix_(STA_rx, APs)]
+        H = self.channel_matrix_fading[np.ix_(STA_rx, APs)]
 
         # If STA_rx == 1, no TPC
         if len(STA_rx) == 1:
@@ -298,61 +314,114 @@ class MAPCsim:
         SINR_db = 10 * np.log10((P * np.diag(H)) / (self._NOISE_POWER + np.sum(H * P, axis=1) - np.diag(H) * P))
         
         for k, sta in enumerate(STA_rx):
-            # MCS-related
+            # Compute MCS and related parameters
             MCS, N_bps, Rc = MCS_cal_PER_001(SINR_db[k])
-
-            if np.isnan(MCS):
-                MCS, N_bps, Rc, Pe = 0, 1, 0.5, 1
-            else:
-                Pe = 1e-2
-
-            # Number of packets that can be aggregated
-            agg_packets[k] = tx_packets(self._NSC, N_bps, Rc, self._NSS, data_tx_time)
-
-            # Vector with the available packets to be transmitted to a given STA at sim_timeline
+            
+            # Fetch the queue of available packets for the current STA
             tx_vector_pos = self.get_queue(sta)
+            
+            if MCS != -1:
+                Pe = 1e-2  # Packet error probability for valid MCS
+            else:
+                Pe = 1  # All packets are lost
+            
+            agg_packets = tx_packets(self._NSC, N_bps, Rc, self._NSS, data_tx_time)
 
-            # number of packets that can be transmitted, i.e., min between aggregation and the number of available packets
-            tx_Packets[k] = min(len(tx_vector_pos), agg_packets[k])
+            # Determine the number of packets to transmit
+            tx_Packets = min(len(tx_vector_pos), agg_packets)
 
-            # packets finally transmitted
-            tx_vector_pos = tx_vector_pos[:tx_Packets[k]]
+            # Updating the tx_vector_pos considering the minimum between the available packets and the packets that can be aggregated
+            tx_vector_pos = tx_vector_pos[:tx_Packets]
 
-            # received packets
-            received_packets = np.random.binomial(tx_Packets[k], 1 - Pe)
-            # lost packets (if any)
-            lost_packets = np.random.choice(tx_vector_pos, int(tx_Packets[k] - received_packets), replace=False)
-            # properly received packets, considering the ones lost (if any)
-            rx_vector_pos = [p for p in tx_vector_pos if p not in lost_packets]
-            # elapsed time due to the transmission
-            temp_elapsed_time[k] = elapsed_time_tx(self._NSC, N_bps, Rc, self._NSS, tx_Packets[k])
-            # Update STA
+            if Pe < 1:  # If transmission is possible
+                # Packets successfully transmitted
+                received_packets = np.random.binomial(tx_Packets, 1 - Pe)
+                lost_packets = np.random.choice(tx_vector_pos, tx_Packets - received_packets, replace=False)
+                rx_vector_pos = [p for p in tx_vector_pos if p not in lost_packets]
+            else:
+                rx_vector_pos = []  # No packets received
+
+            # Compute transmission time
+            temp_elapsed_time[k] = elapsed_time_tx(self._NSC, N_bps, Rc, self._NSS, tx_Packets)
+
+            # Update the number of transmitted packets in the current TXOP
+            self.per_TXOP_STA_tx_packets[sta] = tx_Packets if Pe < 1 else -100
+            agg_packets_group.append(agg_packets)  # Store the number of aggregated packets
+
+            # Update STA state
             self.UpdateSTA(sta, rx_vector_pos, temp_elapsed_time[k])
+
+        self.nominal_data_rate = sum(agg_packets_group) / data_tx_time
 
         return max(temp_elapsed_time)
     
+    def apply_fading(self, fading_type="rician", K_dB=10):
+        """
+        Apply fast fading to a base channel matrix.
+        
+        Parameters:
+        - channel_matrix: matrix with pathloss-based channel gains
+        - fading_type: 'rayleigh' or 'rician'
+        - K_dB: Rician K-factor in dB (ignored if rayleigh)
+
+        Returns:
+        - faded_channel_matrix: same shape with fast fading applied
+        """
+        shape = self.channel_matrix.shape
+
+        if fading_type == "rayleigh":
+            fading = (np.random.normal(0, 1, shape) + 1j * np.random.normal(0, 1, shape)) / np.sqrt(2)
+        elif fading_type == "rician":
+            K = 10**(K_dB / 10)
+            s = np.sqrt(K / (K + 1))   # LOS component
+            sigma = np.sqrt(1 / (2 * (K + 1)))  # NLOS component
+
+            fading = (
+                s + np.random.normal(0, sigma, shape) + 1j * np.random.normal(0, sigma, shape)
+            )
+        else:
+            raise ValueError("Unsupported fading type.")
+
+        self.channel_matrix_fading = self.channel_matrix * np.abs(fading) ** 2  # Power gain
+
+        return 
+
     def TrafficAnalysis(self):
         """Analysis of the results."""
+
+        self.delay_per_STA = [[] for _ in range(self.STA_NUMBER)]  # Delay of each STA
+        self.delayvector = []                                      # Delay matrix (all STAs)
+
         for j in range(self.STA_NUMBER):  # Per STA Analysis
-            # Find the last transmitted packet index
-            last_tx_packet = np.where(self._STA_queue_state[j] == False)[0][-1] if np.any(self._STA_queue_state[j] == False) else None
 
-            if last_tx_packet is None:
-                continue  # Skip if no transmitted packet is found
+            queue_timeline = self.STA_queue_timeline[j]
+            delivery_record = self.delivery_timestamp_record[j]
+            state_record = self._STA_queue_state[j]
 
-            valid_indices = np.concatenate([~np.isnan(self.delivery_timestamp_record[j][:last_tx_packet]), 
-                                                    [True] + [False] * (len(self.delivery_timestamp_record[j]) - last_tx_packet - 1)])
+            # Separate transmitted and non-transmitted packets
+            transmitted_mask = (state_record == False)
+            not_transmitted_mask = (state_record == True)
 
-            # Compute delays and check for any negative or zero delays
-            delay = self.delivery_timestamp_record[j][valid_indices] - self.STA_queue_timeline[j][valid_indices]
-            if np.any(delay <= 0):
-                raise ValueError("Delay cannot be negative or equal to zero")
+            transmitted_delays = delivery_record[transmitted_mask] - queue_timeline[transmitted_mask]
 
-            # Append delays to the global delay vector
-            self.delay_per_STA.append(delay)
-            self.delayvector = np.concatenate((self.delayvector, delay))
+            if np.any(transmitted_delays <= 0):
+                raise ValueError("Delay cannot be negative or zero for transmitted packets")
 
-        for jj in range(self.AP_NUMBER):  # Per AP analysis
+            # For untransmitted packets, assume delivery at the end of simulation
+            pending_arrivals = queue_timeline[not_transmitted_mask]
+            pending_delays = self.timestamp_to_stop - pending_arrivals
+
+            if np.any(pending_delays <= 0):
+                raise ValueError("Pending packet delay is negative or zero; check timestamp_to_stop.")
+
+            # Concatenate both
+            all_delays = np.concatenate((transmitted_delays, pending_delays))
+
+            self.delay_per_STA[j] = all_delays
+            self.delayvector = np.concatenate((self.delayvector, all_delays))
+
+        # Per AP analysis (unchanged)
+        for jj in range(self.AP_NUMBER):
             if self._TXOPwinNumber[jj] == 0:
                 self.APcollision_prob[jj] = 0
             else:
@@ -387,18 +456,37 @@ class MAPCsim:
 
         # Initialize queues and traffic-related vars
         for i, timeline in enumerate(self.STA_queue_timeline):
+            # Convert and filter
+            timeline = np.array(timeline, dtype=float)
+            timeline = timeline[timeline <= self.timestamp_to_stop]  # ✅ Remove late arrivals
+
             actual_length = len(timeline)
 
-            # Ensure delivery_timestamp_record and _STA_queue_state are lists of arrays
+            # Initialize state arrays with correct length
             self.delivery_timestamp_record.append(np.full(actual_length, np.nan, dtype=float))
             self._STA_queue_state.append(np.ones(actual_length, dtype=bool))
 
             # Other assignments
-            self._firstPosTimestamp[i] = timeline[0]
-            self.STA_queue_timeline[i] = np.array(timeline, dtype=float)  # Convert to numpy array if necessary
+            self._firstPosTimestamp[i] = timeline[0] if actual_length > 0 else np.nan
+            self.STA_queue_timeline[i] = timeline
 
-
+        # Scenario-related
+        self.channel_matrix_fading = self.channel_matrix.copy()  # Copy the channel matrix for fading
+        # self.txop_counter_for_sounding = int(0)
+        # self.apply_fading()
+        # match self.simulation_system: 
+        #     case 'CSR': 
+        #         map_matrix, TxPowerMatrixTemp, self.comb_ok = CG_creationTPC(self.AP_NUMBER, self.STA_NUMBER, self.sim_config['PN_DBM'], self._NSC, self._NSS, self._association, self.channel_matrix_fading, self.sim_config['MaxTxPower'], self.sim_config['filtering'], TPC_method=None, CG_size=self.AP_NUMBER)
+        #         self.TxPowerMatrix = [row.tolist() for i, row in enumerate(TxPowerMatrixTemp) if self.comb_ok[i]]
+        #         self.CGs_STAs = [row.tolist() for i, row in enumerate(map_matrix) if self.comb_ok[i]]
+            
+        #     case 'RL':
+        #         map_matrix, TxPowerMatrixTemp, self.comb_ok = CG_creationTPC(self.AP_NUMBER, self.STA_NUMBER, self.sim_config['PN_DBM'], self._NSC, self._NSS, self._association, self.channel_matrix_fading, self.sim_config['MaxTxPower'], self.sim_config['filtering'], TPC_method=None, CG_size=self.AP_NUMBER)
+        #         self.TxPowerMatrix = TxPowerMatrixTemp
+        #         self.CGs_STAs = map_matrix
         
+        
+  
         # Backoff-related
         self._APs_packet_indicator = np.zeros((self.AP_NUMBER,), dtype=bool)  # Vector indicating whether each AP has packets to transmit
         self._backoffValues = np.random.randint(0, self._CWmin, size=self.AP_NUMBER)
@@ -409,14 +497,17 @@ class MAPCsim:
         # TXOP-related
         self._TXOPwinNumber = np.zeros((self.AP_NUMBER,), dtype=int)          # Number of TXOP wins for each AP
         self._TXOPcollision = np.zeros((self.AP_NUMBER,), dtype=int)          # Number of TXOP collisions for each AP
+        
 
         # Results
+        self.last_txop_queue_sizes = np.zeros(self.STA_NUMBER, dtype=int)  # Queue sizes at the last TXOP
         self.per_TXOP_STA_tx_packets = np.zeros((self.STA_NUMBER,), dtype=int)          # Number of packets transmitted per STA per TXOP
         self.STAselectionCounter = np.zeros((self.STA_NUMBER,), dtype=int)    # Counter for the number of times each STA is selected
-        self.throughput_sim = np.zeros((self.STA_NUMBER,), dtype=float)                    # Throughput of each STA
-        self.delay_per_STA = []                                           # Delay of each STA
-        self.delayvector = []                                             # Delay matrix (all STAs)         
+        self.throughput_sim = np.zeros((self.STA_NUMBER,), dtype=float)                    # Throughput of each STA       
         self.APcollision_prob = np.zeros((self.AP_NUMBER,), dtype=float)      # Collision probability of each AP
+
+        self.suc_TXOPs = int(0)  # Counter for successful transmissions
+        self.priority_selection_counter = np.zeros((self.STA_NUMBER,), dtype=int)  # Priority selection for each STA
 
     def sim_forward(self):
         """ Forward the simulation just right before the scheduling process. """
@@ -427,34 +518,72 @@ class MAPCsim:
         # Update APs_packet_indicator vector to indicate whether each AP has packets to transmit
         self.UpdateAP()
 
-        # Reset the number of packets transmitted per STA per TXOP
-        self.per_TXOP_STA_tx_packets = np.zeros((self.STA_NUMBER,), dtype=int)
-
         # Backoff process
         backofftime, self.TXOPwinner = self.Backoff()
 
         # Update simulation timeline with backoff time and backoff collision time
         self.sim_timeline += backofftime
 
+        if self.simulation_system in ['CSR', 'RL']:
+            self.sim_timeline += self.info_overheadsCSR           # ICF + SIFS + ICR + SIFS
+
+
     def run_step(self, agent_decision=None):
         """Run a single step of the simulation, optionally with external intervention."""
         
+        # Reset the number of packets transmitted per STA per TXOP and the total queue size
+        self.per_TXOP_STA_tx_packets = np.zeros((self.STA_NUMBER,), dtype=int)
+        self.nominal_data_rate = 0.0
+        self.last_txop_queue_sizes = np.array([len(self.get_queue(sta)) if self._firstPosTimestamp[sta] <= self.sim_timeline else 0 for sta in range(self.sim_config['STA_NUMBER'])])
+
+        delay = np.array([self.sim_timeline - self._firstPosTimestamp[sta] if self._firstPosTimestamp[sta] <= self.sim_timeline else 0.0 for sta in range(self.STA_NUMBER)])
+        ordered = np.argsort(delay)
         
+
         # Verify whether agent_decision is None (non-agent decision) or is not empty (agent decision with valid decision) 
-        if agent_decision is None or (len(agent_decision[0]) > 0):
+        if (agent_decision not in [None, [], [[], []]]) or self.simulation_system in ['EDCA', 'CSR']:
+   
             # Scheduling
             STA_rx, APs = self.SchedulingV1(agent_decision)
-            
+
+            self.suc_TXOPs += 1  # Increment the successful TXOP counter
+            pos_priority = [np.where(ordered==sta)[0] for sta in STA_rx]
+            self.priority_selection_counter[pos_priority] += 1
+
             # Pre-TX overheads and data transmission time calculation
             if self.simulation_system == "EDCA":
                 self.sim_timeline += self.preTX_overheadsEDCA
                 data_tx_time = self._TXOP_DURATION - self.EDCAoverheads
-            else:
+            elif self.simulation_system in ['CSR', 'RL']:
                 self.sim_timeline += self.preTX_overheadsCSR
                 data_tx_time = self._TXOP_DURATION - self.CSRoverheads
 
+            
+            # Compute the transmission time and update the simulation timeline
             elapsed_time = self.TXtimeCalc(STA_rx, APs, data_tx_time) # Transmission time calculation
+
+            if elapsed_time > data_tx_time:
+                raise ValueError("Transmission time cannot be greater than the allowed transmission time")
+            
             self.sim_timeline += elapsed_time + 16e-6 + 100e-6 + self._AIFS + 9e-6 # elapsed time + SIFS + ACK + AIFS + Te
+
+            # self.txop_counter_for_sounding += 1
+            # if (self.txop_counter_for_sounding == self.txops_between_sounding):
+            #     self.txop_counter_for_sounding = int(0)
+            #     self.apply_fading()
+            #     match self.simulation_system: 
+            #         case 'CSR': 
+            #             map_matrix, TxPowerMatrixTemp, self.comb_ok = CG_creationTPC(self.AP_NUMBER, self.STA_NUMBER, self.sim_config['PN_DBM'], self._NSC, self._NSS, self._association, self.channel_matrix_fading, self.sim_config['MaxTxPower'], self.sim_config['filtering'], TPC_method=None, CG_size=self.AP_NUMBER)
+            #             self.TxPowerMatrix = [row.tolist() for i, row in enumerate(TxPowerMatrixTemp) if self.comb_ok[i]]
+            #             self.CGs_STAs = [row.tolist() for i, row in enumerate(map_matrix) if self.comb_ok[i]]
+                    
+            #             self.sim_timeline += self.sounding_overheads
+            #         case 'RL':
+            #             map_matrix, TxPowerMatrixTemp, self.comb_ok = CG_creationTPC(self.AP_NUMBER, self.STA_NUMBER, self.sim_config['PN_DBM'], self._NSC, self._NSS, self._association, self.channel_matrix_fading, self.sim_config['MaxTxPower'], self.sim_config['filtering'], TPC_method=None, CG_size=self.AP_NUMBER)
+            #             self.TxPowerMatrix = TxPowerMatrixTemp
+            #             self.CGs_STAs = map_matrix
+                    
+            #             self.sim_timeline += self.sounding_overheads
 
 
         return 

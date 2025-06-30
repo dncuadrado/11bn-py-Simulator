@@ -3,6 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import sys
+import h5py
+import shutil
+import json
 
 # optimization problem
 from scipy.optimize import minimize
@@ -65,10 +68,11 @@ def OverheadsCalc(EDCAaccessCategory):
     EDCAoverheads = preTX_overheadsEDCA + TSIFS + TBACK + AIFS + TE
 
     # CSR Overheads
-    preTX_overheadsCSR = TMAPC_ICF + TSIFS + TMAPC_ICR + TSIFS + TMAPC_TF + TSIFS + TIME_PREAMBLE_DATA
-    CSRoverheads = preTX_overheadsCSR + TSIFS + TBACK + AIFS + TE
+    info_overheadsCSR = TMAPC_ICF + TSIFS + TMAPC_ICR + TSIFS
+    preTX_overheadsCSR =  TMAPC_TF + TSIFS + TIME_PREAMBLE_DATA
+    CSRoverheads = info_overheadsCSR + preTX_overheadsCSR + TSIFS + TBACK + AIFS + TE
 
-    return {'preTX_overheadsEDCA':preTX_overheadsEDCA, 'preTX_overheadsCSR': preTX_overheadsCSR, 
+    return {'preTX_overheadsEDCA':preTX_overheadsEDCA, 'info_overheadsCSR': info_overheadsCSR, 'preTX_overheadsCSR': preTX_overheadsCSR, 
             'EDCAoverheads':EDCAoverheads, 'CSRoverheads':CSRoverheads}
 ####################################################################################################################
 
@@ -743,8 +747,42 @@ def get_association(association, STAs):
 
     return APs
 
+def get_rssi(MaxTxPower_dB, channelMatrix, STAs, APs):
+    """
+    The corresponding RSSI values for the stations in STAs
+    Return:
+    rssi : list
+    """
+    rssi = [
+        channelMatrix[sta, ap]*10**(MaxTxPower_dB / 10)
+        for sta, ap in zip(STAs, APs)
+    ]
+
+    return rssi
+
+def get_channel_coefficient(channelMatrix):
+    """
+    Compute the channel coefficient (flattened) for the given channel matrix.
+    
+    """
+    return channelMatrix.flatten().tolist()
+
+def get_channel_coefficient_bss(channelMatrix, STAs, APs):
+    """
+    The corresponding RSSI values for the stations in STAs
+    Return:
+    rssi : list
+    """
+    channel_coeff = [
+        channelMatrix[sta, ap]
+        for sta, ap in zip(STAs, APs)
+    ]
+
+    return channel_coeff
+
+
 # Function to compute the C-SR groups and the corresponding power allocation
-def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channelMatrix, MaxTxPower, CG_filter, TPC_method, CG_size): 
+def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channelMatrix, MaxTxPower, is_filtering, TPC_method, CG_size): 
                    
     # Initialization
     noise_power = 10**(PN_DBM / 10)
@@ -754,11 +792,14 @@ def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channel
     map_matrix = generate_combinations(AP_NUMBER, STA_NUMBER, association, CG_size)
 
     # Create TxPowerMatrixTemp with the same shape as map_matrix
-    TxPowerMatrixTemp = [np.full_like(row, MaxTxPower, dtype=float) if i<STA_NUMBER else np.full_like(row, np.nan, dtype=float) for i, row in enumerate(map_matrix)]
+    # TxPowerMatrixTemp = [np.full_like(row, MaxTxPower, dtype=float) if i<STA_NUMBER else np.full_like(row, np.nan, dtype=float) for i, row in enumerate(map_matrix)]
+    TxPowerMatrixTemp = [np.full_like(row, MaxTxPower, dtype=float) for _, row in enumerate(map_matrix)]
+
+    if not is_filtering:
+        return map_matrix, TxPowerMatrixTemp, np.ones(len(map_matrix), dtype=bool)
 
     # Other matrices initialization
     datarateTemp = [np.zeros(len(row), dtype=float) for _, row in enumerate(map_matrix)]
-    datarate = np.zeros(len(map_matrix), dtype=float) # proportional transmission rate
     comb_ok = np.zeros(len(map_matrix), dtype=bool)
     discard_list = np.ones(len(map_matrix), dtype=bool)
 
@@ -795,29 +836,21 @@ def CG_creationTPC(AP_NUMBER, STA_NUMBER, PN_DBM, NSC, NSS, association, channel
                 datarateTemp[i][k] = N_bps * Rc / (12 * 5/6)  # Number of bits to code a symbol
                 # datarateTemp[i][k] = NSC * N_bps * Rc * NSS / (12.8e-6 + 0.8e-6) # Datarate in bps
             
-            # To filter out combinations using a specific criterium 
-            if CG_filter == 'on': 
-                # if the datarate using CSR is lower than the datarate without CSR, discard the combination
-                if len(STAs) * datarateTemp[i][k] >= datarateTemp[STAs[k]]:
-                    continue
-                else:
-                    # Discarding the rest of combs where this STAs appear
-                    true_indices = np.where(discard_list)[0]
-                    mask = np.array([set(STAs).issubset(set(map_matrix[idx])) for idx in true_indices])
-                    discard_list[true_indices[mask]] = False
-                    break
-            elif CG_filter == 'off':  # No filtering. Only discards combinations with SINR under the threshold
+            # if the datarate using CSR is lower than the datarate without CSR, discard the combination
+            if len(STAs) * datarateTemp[i][k] >= datarateTemp[STAs[k]]:
                 continue
-                # if datarate[i][k] == 0:
-                #     discard_list[i] = False
-                #     break
             else:
-                raise ValueError(f'Invalid CG_filter value: {CG_filter}. Choose "on" or "off"')
+                # Discarding the rest of combs where this STAs appear
+                true_indices = np.where(discard_list)[0]
+                mask = np.array([set(STAs).issubset(set(map_matrix[idx])) for idx in true_indices])
+                discard_list[true_indices[mask]] = False
+                break
+
         if discard_list[i] == True:
             comb_ok[i] = True
-            datarate[i] = len(datarateTemp[i])*np.prod(datarateTemp[i])
+            # datarate[i] = len(datarateTemp[i])*np.prod(datarateTemp[i])
     
-    return map_matrix, TxPowerMatrixTemp, comb_ok, datarate
+    return map_matrix, TxPowerMatrixTemp, comb_ok
 ####################################################################################################################
 
 # Compute of the probaility of a transmission slot, expected backoff and conditional collision probability
@@ -1042,6 +1075,130 @@ def Throughput_CSR_bianchi(AP_NUMBER, STA_NUMBER, association, CGs_STAs, TxPower
     return DL_throughput_CSR_bianchi
 ####################################################################################################################
 
+def remove_from_h5(base_dir, filename, dataset_name):
+    """
+    Removes a dataset from all delay.h5 files across all folders below base_dir.
+
+    Parameters:
+    - base_dir (str): Base path to simulation results.
+    - dataset_name (str): Name of the dataset to remove
+    """
+    # Sweep all deployment folders in the base directory
+    for deployment_folder in os.listdir(base_dir):
+        deployment_path = os.path.join(base_dir, deployment_folder)
+        
+        # Skip non-folder items
+        if not os.path.isdir(deployment_path):
+            continue
+
+        # Sweep all traffic iterations in the current deployment folder
+        for traffic_iter in os.listdir(deployment_path):
+            traffic_path = os.path.join(deployment_path, traffic_iter, filename)
+
+            # If delay.h5 exists, try to remove the strategy
+            if os.path.isfile(traffic_path):
+                with h5py.File(traffic_path, 'a') as f:
+                    if dataset_name in f:
+                        print(f"Removing '{dataset_name}' from {traffic_path}")
+                        del f[dataset_name]
+                    else:
+                        print(f"'{dataset_name}' not found in {traffic_path}, skipping.")
+
+
+def merge_h5_datasets(base_dir, new_dir, filename, overwrite=False):
+    # List all subdirectories in base_dir that contain the target filename
+    for root, dirs, _ in os.walk(base_dir):
+        for d in dirs:
+            base_subdir = os.path.join(root, d)
+            new_subdir = os.path.join(new_dir, os.path.relpath(base_subdir, base_dir))
+            base_file = os.path.join(base_subdir, filename)
+            new_file = os.path.join(new_subdir, filename)
+
+            if not os.path.exists(new_file):
+                print(f"[!] Skipping '{d}': new file not found at {new_file}")
+                continue
+            if not os.path.exists(base_file):
+                print(f"[!] Skipping '{d}': base file not found at {base_file}")
+                continue
+
+            # Backup base file before editing
+            backup_file = base_file + '.bak'
+            if not os.path.exists(backup_file):
+                shutil.copy2(base_file, backup_file)
+                print(f"[i] Backup created for '{d}': {backup_file}")
+
+            print(f"[→] Merging '{d}'")
+
+            with h5py.File(base_file, 'a') as base_h5, h5py.File(new_file, 'r') as new_h5:
+                for dataset_name in new_h5:
+                    new_data = new_h5[dataset_name][:]
+                    if dataset_name in base_h5:
+                        if overwrite:
+                            print(f"    [overwrite] {dataset_name}")
+                            del base_h5[dataset_name]
+                            base_h5.create_dataset(dataset_name, data=new_data)
+                        else:
+                            print(f"    [append] {dataset_name}")
+                            base_data = base_h5[dataset_name][:]
+                            combined = np.concatenate((base_data, new_data), axis=0)
+                            del base_h5[dataset_name]
+                            base_h5.create_dataset(dataset_name, data=combined)
+                    else:
+                        print(f"    [add new] {dataset_name}")
+                        base_h5.create_dataset(dataset_name, data=new_data)
+
+    print("[✓] Merging completed.")
+
+
+def merge_json_summaries(base_dir, new_dir, base_filename, new_filename, overwrite=False):
+    base_file = os.path.join(base_dir, base_filename)
+    new_file = os.path.join(new_dir, new_filename)
+
+    if not os.path.exists(new_file):
+        print(f"[!] New JSON file not found at: {new_file}")
+        return
+    if not os.path.exists(base_file):
+        print(f"[!] Base JSON file not found at: {base_file}")
+        return
+
+    # Backup base file
+    backup_file = base_file + '.bak'
+    if not os.path.exists(backup_file):
+        shutil.copy2(base_file, backup_file)
+        print(f"[i] Backup created at: {backup_file}")
+
+    print(f"[→] Merging summaries into: {base_file}")
+
+    with open(base_file, 'r') as f_base, open(new_file, 'r') as f_new:
+        base_json = json.load(f_base)
+        new_json = json.load(f_new)
+
+    for deployment, new_deployment_data in new_json.items():
+        base_deployment_data = base_json.setdefault(deployment, {})
+
+        for traffic_key, new_traffic_data in new_deployment_data.items():
+            base_traffic_data = base_deployment_data.setdefault(traffic_key, {})
+
+            # Only copy traffic_profile if not already present
+            if 'traffic_profile' not in base_traffic_data:
+                base_traffic_data['traffic_profile'] = new_traffic_data.get('traffic_profile', [])
+
+            # Merge p99_delays_ms
+            base_delays = base_traffic_data.setdefault('p99_delays_ms', {})
+            for algo, delay_val in new_traffic_data.get('p99_delays_ms', {}).items():
+                if algo in base_delays:
+                    if overwrite:
+                        print(f"    [overwrite] {deployment}/{traffic_key}/{algo}")
+                        base_delays[algo] = delay_val
+                else:
+                    print(f"    [add new] {deployment}/{traffic_key}/{algo}")
+                    base_delays[algo] = delay_val
+
+    # Write updated base JSON
+    with open(base_file, 'w') as f_base_out:
+        json.dump(base_json, f_base_out, indent=4)
+
+    print("[✓] JSON merging completed.")
 
 
 

@@ -3,16 +3,17 @@ import os
 import h5py
 import numpy as np
 import re
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
 from numpy.random import SeedSequence, default_rng
+import json
 
 import Utils as utils
 from DeploymentGenerator import deployment_generator
 
+global STA_matrix_save, channelMatrix_save
 
-
-def traffic_generator(traffic_config, sim_config):
+def traffic_generator(traffic_config, sim_config, traffic_profile_perSTA):
     """
     Generates a list of arrival times for each STA based on the specified traffic model.
     """
@@ -22,7 +23,7 @@ def traffic_generator(traffic_config, sim_config):
     for sta in range(sim_config['STA_NUMBER']):
         
         # Loading STA profile
-        traffic_profile = traffic_config['traffic_profiles'][traffic_config['traffic_profile_perSTA'][sta]]
+        traffic_profile = traffic_profile_perSTA[sta]
 
         # Loading the traffic model
         traffic_model = traffic_profile['traffic_model']
@@ -37,7 +38,7 @@ def traffic_generator(traffic_config, sim_config):
             case 'Bursty': # Bursty traffic model
                 arrivals = generate_burst_traffic(sim_config['EVENT_NUMBER'], traffic_generation_rate)
             case 'CBR': # CBR traffic model
-                fps = traffic_config['traffic_profiles'][traffic_config['traffic_profile_perSTA'][sta]]['fps']
+                fps = traffic_config['traffic_profiles'][traffic_profile_perSTA[sta]]['fps']
                 arrivals = generate_CBR_traffic(sim_config['FRAME_LENGTH'], traffic_load, fps)
             case _:
                 raise ValueError("Invalid traffic type specified.")
@@ -138,16 +139,16 @@ def generate_CBR_traffic(FRAME_LENGTH, traffic_load, fps):
 
     return np.array(arrivals)
 
-def save_to_h5(sim_config, traffic_config, STAs_arrivals_matrix, iter_number):
+def save_to_h5(sim_config, traffic_config, sim, STAs_arrivals_matrix, deployment_iteration, traffic_iteration):
     """
     Saves the STAs_arrivals_matrix into individual HDF5 files in a structured directory.
     """
     # Create the directory structure
-    output_path = sim_config['output_dir']
+    output_path = os.path.join(sim_config['output_dir'], f"Deployment{deployment_iteration}")
     os.makedirs(output_path, exist_ok=True)
 
     # Save the current iteration to its own HDF5 file
-    h5_file_path = os.path.join(output_path, f"STAs_arrivals_matrix{iter_number}.h5")
+    h5_file_path = os.path.join(output_path, f"STAs_arrivals_matrix{traffic_iteration}.h5")
     with h5py.File(h5_file_path, 'w') as h5file:
         for i, arrivals in enumerate(STAs_arrivals_matrix):
             h5file.create_dataset(f"STA_{i}", data=arrivals) # no compression
@@ -155,48 +156,87 @@ def save_to_h5(sim_config, traffic_config, STAs_arrivals_matrix, iter_number):
 
         # Store each key-value pair as an attribute
         for key, value in traffic_config.items():
-            h5file.attrs[key] = str(value)
+            if isinstance(value, list) and all(isinstance(v, str) for v in value):
+                h5file.attrs[key] = np.array(value, dtype=h5py.string_dtype(encoding='utf-8'))
+            elif isinstance(value, dict):
+                h5file.attrs[key] = str(value) 
+            else:
+                h5file.attrs[key] = value
 
-def init_pool_processes(h5_path, use_preloaded):
-    """Load HDF5 data only if required by the simulation mode"""
-    global STA_matrix_save, channelMatrix_save
-    if use_preloaded:
-        with h5py.File(h5_path, 'r') as f:
-            STA_matrix_save = f['STA_matrix_save'][:]
-            channelMatrix_save = f['channelMatrix_save'][:]
+def simulate_iterations(traffic_config, sim_config, learning_config, seed, iter_number=None):
+    """
+    Simulates one iterations and returns the delay vectors for the different strategies.
+    Parameters:
+    traffic_config (dict): Configuration for traffic generation.
+    sim_config (dict): Configuration for the simulation.
+    learning_config (dict): Configuration for the learning agent.
+    seed (int): Random seed for the simulation.
+    iter_number (int): Iteration number for the deployment.
 
-def simulate_iterations(traffic_config, sim_config, iter_number, seed):
-    """
-    Simulates one iteration and returns the STAs_arrivals_matrix.
-    """
-    # Set the seed
+    """ 
+    print('-----------------------------------------')
+    print('-----------------------------------------')
+    print(f"Deployment{iter_number}...")
+
+    # # Set the seed
     np.random.seed(seed)
 
-    # Mode 1: Use pre-loaded data (if enabled)
+    AP_matrix, STA_matrix, sim_config['association'], sim_config['channelMatrix'] = deployment_generator(sim_config, seed)
+
     if sim_config['use_preloaded_deployments']:
         STA_matrix = STA_matrix_save[:, :, iter_number]
         sim_config['channelMatrix'] = channelMatrix_save[:, :, iter_number]
-    # Mode 2: Generate fresh data
-    else:
-        AP_matrix, STA_matrix, sim_config['association'], sim_config['channelMatrix'] = deployment_generator(sim_config, seed)
 
-    traffic_config['traffic_profile_perSTA'] = np.random.choice(['A','B'], size=STA_NUMBER).tolist()
+    traffic_ITERATIONS = 10
+    seed_seq = SeedSequence(seeds[iter_number])
+    traffic_seeds = seed_seq.generate_state(traffic_ITERATIONS)
 
-    # # # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
-    STAs_arrivals_matrix = traffic_generator(
+    with ProcessPoolExecutor(max_workers=10) as executor:
+        futures = [
+            executor.submit(
+                run_traffic_iteration,
+                traffic_iter,
+                traffic_seeds[traffic_iter],
                 traffic_config,
-                sim_config
-                ) 
-    
+                sim_config,
+                learning_config,
+                sim,
+                iter_number
+            )
+            for traffic_iter in range(traffic_ITERATIONS)
+        ]
+        for future in tqdm(as_completed(futures), total=len(futures), desc=f"Deployment {iter_number}"):
+            try:
+                future.result()
+            except Exception as e:
+                print(f"Error in traffic iteration: {e}")
+
+    return
+
+def run_traffic_iteration(
+        traffic_iter, 
+        traffic_seed, 
+        traffic_config, 
+        sim_config, 
+        learning_config, 
+        sim, 
+        iter_number
+    ):
+    np.random.seed(traffic_seed)
+    # traffic_config['traffic_profile_perSTA'] = np.random.choice(['A','B'], size=sim_config['STA_NUMBER']).tolist()
+
+    traffic_profile_perSTA = [
+            {
+                'traffic_load': np.random.uniform(10, 90),  # Load in Mbps
+                'traffic_model': str(np.random.choice(['Poisson', 'Bursty']))  # Traffic model
+            }
+            for i in range(sim_config['STA_NUMBER'])
+    ]
+
+    STAs_arrivals_matrix = traffic_generator(traffic_config, sim_config, traffic_profile_perSTA)
+
     ### Uncoment to save the delay vectors into HDF5 files for each iterations, traffic type, and traffic load in a structured directory
-    save_to_h5(sim_config, traffic_config, STAs_arrivals_matrix, iter_number)
-    
-    return 
-
-
-# Define module-level globals
-STA_matrix_save = None
-channelMatrix_save = None
+    save_to_h5(sim_config, traffic_config, sim, STAs_arrivals_matrix, iter_number, traffic_iter)
 
 
 # main function
@@ -204,7 +244,7 @@ if __name__ == "__main__":
     # Start Timer
     start_time = time.time()
 
-    sim = '20-8'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
+    sim = '30-16'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
     numbers = re.findall(r'\d+', sim) # Extract numbers from the simulation name
 
     # Scenario-related
@@ -229,7 +269,6 @@ if __name__ == "__main__":
 
     # Number of iterations
     ITERATIONS = 100
-
     seed_seq = SeedSequence(1)
     seeds = seed_seq.generate_state(ITERATIONS)
 
@@ -238,12 +277,11 @@ if __name__ == "__main__":
 
     # Traffic Configuration 
     traffic_config = {
-        'traffic_profiles': {    # Define the traffic profiles
-            'A' : {'traffic_model': 'Poisson', 'traffic_load' : 100, 'latency': 1E-4},
-            'B' : {'traffic_model': 'Bursty', 'traffic_load' : 50, 'latency': 2E-4},
-            'C' : {'traffic_model': 'CBR', 'traffic_load' : 25, 'fps': 60, 'latency': 5E-4}  # not used by now
-    },
-        'EDCAaccessCategory' : 'BE'
+        'traffic_profiles': {
+            'A': {'traffic_model': 'Poisson', 'traffic_load': 10, 'latency': 1E-4},
+            'B': {'traffic_model': 'Bursty', 'traffic_load': 90, 'latency': 2E-4},
+        },
+        'EDCAaccessCategory': 'BE'
     }   
     
     # Simulation Configuration
@@ -260,7 +298,7 @@ if __name__ == "__main__":
         'CCA': CCA,
         'NSS': NSS,
         'NSC': NSC,
-        'learning_timestamp_to_stop': 2, # seconds
+        'learning_timestamp_to_stop': 5, # seconds
         'training_flag': False,
         'timestamp_to_stop': 5, # seconds
         'FRAME_LENGTH': FRAME_LENGTH,
@@ -270,27 +308,21 @@ if __name__ == "__main__":
         'overheads' : utils.OverheadsCalc(traffic_config['EDCAaccessCategory'])
     }
 
-    # Run simulations with progress bar
-    max_workers = min(os.cpu_count(), ITERATIONS)  # Optimize worker count
+    learning_config = {
+        'log_dir': os.path.join(os.getcwd(), 'trained_models'),
+        'parallel_envs': 10,
+        'num_episodes': int(5E6),
+    }
 
-    with ProcessPoolExecutor(
-        max_workers=max_workers,
-        initializer=init_pool_processes,
-        initargs=(h5file_deployments_path, sim_config['use_preloaded_deployments'])
-        ) as executor:
+    if sim_config['use_preloaded_deployments']:
+        with h5py.File(h5file_deployments_path, 'r') as f:
+            STA_matrix_save = f['STA_matrix_save'][:]
+            channelMatrix_save = f['channelMatrix_save'][:]
 
-        futures = [
-            executor.submit(
-                simulate_iterations, traffic_config, sim_config, iter_number, seeds[iter_number] 
-            )
-            for iter_number in range(ITERATIONS)
-        ]
-        for iter_number, future in enumerate(tqdm(futures, desc="Processing", unit=" iterations")):
-            try:
-                future.result()
-            
-            except Exception as e:
-                print(f"Error in iterations {iter_number}")
+    for iter_number in range(ITERATIONS):
+        simulate_iterations(
+            traffic_config, sim_config, learning_config, seeds[iter_number], iter_number
+        )
 
     # End Timer and print elapsed time
     end_time = time.time()

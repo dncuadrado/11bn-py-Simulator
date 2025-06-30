@@ -38,7 +38,9 @@ def throughput_calculation(sim_config, seed, show_plot= None, iter_number=None):
                                                 association, 
                                                 channelMatrix, 
                                                 MaxTxPower, 
-                                                CG_filter='on', TPC_method='PSO')    # TPC Optimization method: None, 'PSO', 'IPOPT', 'DE'
+                                                CG_filter='on', TPC_method='PSO',    # TPC Optimization method: None, 'PSO', 'IPOPT', 'DE'
+                                                CG_size=4
+                                                )    
     
     TxPowerMatrix = [row.tolist() for i, row in enumerate(TxPowerMatrixTemp) if comb_ok[i]==True]
     CGs_STAs = [row.tolist() for i, row in enumerate(map_matrix) if comb_ok[i]==True]

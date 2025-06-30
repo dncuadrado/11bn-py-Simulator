@@ -12,128 +12,252 @@ import re
 from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
 from numpy.random import SeedSequence
+import argparse
+import json
 
 import Utils as utils
 from MAPCsim import *
 from TrafficGenerator import traffic_generator
 from DeploymentGenerator import deployment_generator
 import RLagent as RLagent
+from histo_plot import plot_histogram
 
 from CustomEnv import * # my Custom environment
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 
-from sb3_contrib import MaskablePPO
+from sb3_contrib import MaskablePPO 
 from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
+global STA_matrix_save, channelMatrix_save, summary_data
+
+def parse_args_from_slurm():
+    """
+    Parse arguments from command line
+    """
+    # Parse command line arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--project_name', type=str, default='sb3-HPC')
+    parser.add_argument('--run_id', type=str, default=None)
+    parser.add_argument('--n_steps', type=int, default=2048)                 # default --- 2048                 
+    parser.add_argument('--batch_size', type=int, default=64)              # default --- 64   
+    parser.add_argument('--initial_lr', type=float, default=6.5e-4)       # default --- 3e-4              
+    parser.add_argument('--learning_decay', type=str, default='cosine') # default --- 'cosine'
+    parser.add_argument('--gamma', type=float, default=0.99)               # default --- 0.99
+    parser.add_argument('--gae_lambda', type=float, default=0.95)          # default --- 0.95
+    parser.add_argument('--clip_range', type=float, default=0.2)           # default --- 0.2
+    parser.add_argument('--w_mean', type=float, default=0.13)
+    parser.add_argument('--episode_threshold', type=int, default=0)
+    parser.add_argument('--qos_threshold', type=float, default=0.01) # QoS threshold for the reward function
+    parser.add_argument('--w_sparse', type=float, default=0.5)            # default --- 0.13
+
+    args = parser.parse_args()
+
+    return vars(args)
 
 def simulate_iterations(traffic_config, sim_config, learning_config, seed, iter_number=None):
     """
-    Simulates one iterations and returns the delay vectors for EDCA, MNP, OP, and TAT.
-
+    Simulates one iterations and returns the delay vectors for the different strategies.
     Parameters:
-    sim (str): Simulation identifier.
-    traffic_type (str): Type of traffic (e.g., 'Poisson', 'Bursty', 'CBR').
-    traffic_load (str): Load of the traffic (e.g., 'low', 'medium', 'high').
-    iter_number (int): Number of the current iteration.
-    STA_matrix_save (np.ndarray): Pre-saved STA matrix for all iter_number.
-    channelMatrix_save (np.ndarray): Pre-saved channel matrix for all iter_number.
-    RSSI_dB_vector_to_export_save (np.ndarray): Pre-saved RSSI vector for all iter_number.
+    traffic_config (dict): Configuration for traffic generation.
+    sim_config (dict): Configuration for the simulation.
+    learning_config (dict): Configuration for the learning agent.
+    seed (int): Random seed for the simulation.
+    iter_number (int): Iteration number for the deployment.
 
     Returns:
-    np.ndarray, np.ndarray, np.ndarray, np.ndarray: delay vector for EDCA, MNP, OP, and TAT.
-    """
-         
-    # Set the seed
+    deployment_key (str): Key for the deployment.
+    deployment_summary (dict): Summary of the deployment.
+    """ 
+
+    iter_number = 3
+    print('-----------------------------------------')
+    print('-----------------------------------------')
+    print(f"Deployment{iter_number}...")
+
+    # # Set the seed
     np.random.seed(seed)
 
-    # Deployment
-    AP_matrix, STA_matrix, sim_config['association'], sim_config['channelMatrix'] = deployment_generator(sim_config, seed)
+    deployment_key = f"Deployment{iter_number}"
 
-    # Use pre-loaded data (if enabled)
+    AP_matrix, STA_matrix, sim_config['association'], channel_matrix = deployment_generator(sim_config, seed)
+
     if sim_config['use_preloaded_deployments']:
         STA_matrix = STA_matrix_save[:, :, iter_number]
-        sim_config['channelMatrix'] = channelMatrix_save[:, :, iter_number]
+        channel_matrix= channelMatrix_save[:, :, iter_number]
 
-        
+    # utils.PlotDeployment(AP_matrix, STA_matrix, sim_config['association'], sim_config['GRID_VALUE'], sim_config['walls'])
+
     # Compute the CGs and TxPowerMatrix
-    map_matrix, TxPowerMatrixTemp, comb_ok, datarate = utils.CG_creationTPC(sim_config['AP_NUMBER'], 
-                                                sim_config['STA_NUMBER'], 
-                                                sim_config['PN_DBM'], 
-                                                sim_config['NSC'], 
-                                                sim_config['NSS'], 
-                                                sim_config['association'], 
-                                                sim_config['channelMatrix'], 
-                                                sim_config['MaxTxPower'], 
-                                                CG_filter='on', TPC_method='PSO')    # TPC Optimization method: None, 'PSO', 'IPOPT', 'DE'
-    
-    TxPowerMatrix = [row.tolist() for i, row in enumerate(TxPowerMatrixTemp) if comb_ok[i]==True]
-    CGs_STAs = [row.tolist() for i, row in enumerate(map_matrix) if comb_ok[i]==True]
+    map_matrix, TxPowerMatrixTemp, comb_ok = CG_creationTPC(sim_config['AP_NUMBER'], 
+                                                    sim_config['STA_NUMBER'], 
+                                                    sim_config['PN_DBM'], 
+                                                    sim_config['NSC'], 
+                                                    sim_config['NSS'], 
+                                                    sim_config['association'], 
+                                                    channel_matrix, 
+                                                    sim_config['MaxTxPower'], 
+                                                    is_filtering=sim_config['filtering'], TPC_method=None, # TPC Optimization method: None, 'PSO', 'IPOPT', 'DE'
+                                                    CG_size=4) 
 
-    # Validate that TxPowerMatrix and CGs_STAs have the same length
+    TxPowerMatrix = [row.tolist() for i, row in enumerate(TxPowerMatrixTemp) if comb_ok[i]]
+    CGs_STAs = [row.tolist() for i, row in enumerate(map_matrix) if comb_ok[i]]
+
+    # map_matrix.append(None)
+    # TxPowerMatrixTemp.append(None)    
+    # comb_ok = np.append(comb_ok, True)
+
     if len(TxPowerMatrix) != len(CGs_STAs):
-        raise ValueError('TxPowerMatrix and CGs_STAs have different lengths')
+        raise ValueError('Mismatch between TxPowerMatrix and CGs_STAs')
 
-    ### Traffic dataset
-    # Load the traffic dataset. Uncomment if using pre-saved dataset.
+    traffic_ITERATIONS = 100
+    seed_seq = SeedSequence(seeds[iter_number])
+    traffic_seeds = seed_seq.generate_state(traffic_ITERATIONS)
+
+    # Init the result
+    deployment_summary = {}
+
+    with ProcessPoolExecutor(max_workers=1) as executor:
+        futures = [
+            executor.submit(
+                run_traffic_iteration,
+                traffic_iter,
+                traffic_seeds[traffic_iter],
+                traffic_config,
+                sim_config,
+                learning_config,
+                channel_matrix,
+                map_matrix,
+                TxPowerMatrixTemp,
+                comb_ok,
+                CGs_STAs,
+                TxPowerMatrix,
+                sim,
+                iter_number
+            )
+            for traffic_iter in range(traffic_ITERATIONS)
+        ]
+        for future in tqdm(as_completed(futures), total=len(futures), desc=f"Deployment {iter_number}"):
+            try:
+                traffic_iter, traffic_summary = future.result()
+                deployment_summary[f"Traffic{traffic_iter}"] = traffic_summary
+            except Exception as e:
+                print(f"Error in traffic iteration: {e}")
+
+    return deployment_key, deployment_summary
+
+def run_traffic_iteration(
+        traffic_iter, 
+        traffic_seed, 
+        traffic_config, 
+        sim_config, 
+        learning_config,
+        channel_matrix, 
+        map_matrix, 
+        TxPowerMatrixTemp, 
+        comb_ok, 
+        CGs_STAs, 
+        TxPowerMatrix, 
+        sim, 
+        iter_number
+    ):
+    np.random.seed(traffic_seed)
     if sim_config['use_preloaded_traffic']:
-        h5_file_path = os.path.join(os.getcwd(), 'traffic datasets', sim, f"STAs_arrivals_matrix{iter_number}.h5")
-        # Open and load the dataset
+        h5_file_path = os.path.join(os.getcwd(), 'traffic datasets', sim, f"Deployment{iter_number}", f"STAs_arrivals_matrix{traffic_iter}.h5")
         with h5py.File(h5_file_path, 'r') as h5file:
             STAs_arrivals_matrix = [h5file[key][:] for key in h5file.keys()]
+            traffic_config['traffic_profile_perSTA'] = h5file.attrs['traffic_profile_perSTA'].tolist()
     else:
-        # # # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
-        # Assign a traffic profile to each STA
-        traffic_config['traffic_profile_perSTA'] = np.random.choice(['A','B'], size=STA_NUMBER).tolist()
+        # traffic_profile_perSTA = np.random.choice(['C','D'], size=sim_config['STA_NUMBER']).tolist()
+        traffic_profile_perSTA = [
+                {
+                    'traffic_load': np.random.uniform(traffic_config['load_min'], traffic_config['load_max']),  # Load in Mbps
+                    'traffic_model': str(np.random.choice(['Poisson', 'Bursty']))  # Traffic model
+                }
+                for i in range(sim_config['STA_NUMBER'])
+        ]
 
-        STAs_arrivals_matrix = traffic_generator(
-                traffic_config,
-                sim_config
-                ) 
+        STAs_arrivals_matrix = traffic_generator(traffic_config, sim_config, traffic_profile_perSTA)
 
+    delay_dict = {}
 
-    # model = 'l9dthv3v'
-    # env = RLagent.evaluation(map_matrix, TxPowerMatrixTemp, comb_ok, datarate, STAs_arrivals_matrix, sim_config, learning_config, model)
-    # env.simulator.TrafficAnalysis()
+    # # Baseline ML model
+    # baseline = 'mvoz4x5g'
+    # baseline_model = {'model_id': baseline, 'model_type': 'best_model.zip'}
 
+    # np.random.seed(sim_config['seed'])
+    # simML = RLagent.evaluation(
+    #     traffic_config, sim_config, learning_config, 
+    #     map_matrix, TxPowerMatrixTemp, comb_ok, datarate, 
+    #     STAs_arrivals_matrix, baseline_model
+    # )
+    # simML.simulator.TrafficAnalysis()
+    # baseline_delay = simML.simulator.delayvector
+
+    # # # Include it in the results dict
+    # delay_dict['baseline'] = baseline_delay
+
+    # # Evaluate models
+    models= ['6cbu38xr']
+    # models= ['145tabtw']
+    # # # # # # # # Add additional ML models
+
+    ml_results = evaluate_models(models, sim_config, traffic_config, learning_config,
+                                channel_matrix, map_matrix, TxPowerMatrixTemp, comb_ok, STAs_arrivals_matrix, traffic_profile_perSTA)
+    
+    delay_dict.update(ml_results)
+
+    # EDCA
     np.random.seed(sim_config['seed'])
-    simEDCA = MAPCsim(sim_config)  # new "MAPC simulator" object
+    simEDCA = MAPCsim(sim_config)
     simEDCA.timestamp_to_stop = sim_config['timestamp_to_stop']
-    simEDCA.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
+    simEDCA.channel_matrix = channel_matrix
+    simEDCA.STA_queue_timeline = STAs_arrivals_matrix
     simEDCA.simulation_system = 'EDCA'
     simEDCA.accessCategory = traffic_config['EDCAaccessCategory']
-    simEDCA.InitSettings()  # Initializing STAs
+    simEDCA.InitSettings()
     simEDCA.Run()
+    EDCAdelay = simEDCA.delayvector
 
-
+    # MNP
     np.random.seed(sim_config['seed'])
-    simMNP = MAPCsim(sim_config)  # new "MAPC simulator" object
+    simMNP = MAPCsim(sim_config)
     simMNP.timestamp_to_stop = sim_config['timestamp_to_stop']
-    simMNP.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
+    simMNP.channel_matrix = channel_matrix
+    simMNP.STA_queue_timeline = STAs_arrivals_matrix
     simMNP.simulation_system = 'CSR'
     simMNP.scheduler = 'MNP'
     simMNP.CGs_STAs = CGs_STAs
     simMNP.TxPowerMatrix = TxPowerMatrix
     simMNP.accessCategory = traffic_config['EDCAaccessCategory']
-    simMNP.InitSettings()  # Initializing STAs
+    simMNP.InitSettings()
     simMNP.Run()
+    MNPdelay = simMNP.delayvector
+    plot_histogram(simMNP.priority_selection_counter / simMNP.suc_TXOPs, name='MNP')
 
+    # OP
     np.random.seed(sim_config['seed'])
-    simOP = MAPCsim(sim_config)  # new "MAPC simulator" object
+    simOP = MAPCsim(sim_config)
     simOP.timestamp_to_stop = sim_config['timestamp_to_stop']
-    simOP.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
+    simOP.channel_matrix = channel_matrix
+    simOP.STA_queue_timeline = STAs_arrivals_matrix
     simOP.simulation_system = 'CSR'
     simOP.scheduler = 'OP'
     simOP.CGs_STAs = CGs_STAs
     simOP.TxPowerMatrix = TxPowerMatrix
     simOP.accessCategory = traffic_config['EDCAaccessCategory']
-    simOP.InitSettings()  # Initializing STAs
+    simOP.InitSettings()
     simOP.Run()
+    OPdelay = simOP.delayvector
+    plot_histogram(simOP.priority_selection_counter / simOP.suc_TXOPs, name='OP')
 
+    # TAT
     np.random.seed(sim_config['seed'])
-    simTAT = MAPCsim(sim_config)  # new "MAPC simulator" object
+    simTAT = MAPCsim(sim_config)
     simTAT.timestamp_to_stop = sim_config['timestamp_to_stop']
-    simTAT.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
+    simTAT.channel_matrix = channel_matrix
+    simTAT.STA_queue_timeline = STAs_arrivals_matrix
     simTAT.simulation_system = 'CSR'
     simTAT.scheduler = 'TAT'
     simTAT.CGs_STAs = CGs_STAs
@@ -141,42 +265,100 @@ def simulate_iterations(traffic_config, sim_config, learning_config, seed, iter_
     simTAT.accessCategory = traffic_config['EDCAaccessCategory']
     simTAT.alpha = 0.5
     simTAT.beta = 0.5
-    simTAT.InitSettings()  # Initializing STAs
+    simTAT.InitSettings()
     simTAT.Run()
+    TATdelay = simTAT.delayvector
+    plot_histogram(simTAT.priority_selection_counter / simTAT.suc_TXOPs, name='TAT')
 
-    print(f'Iteration: {iter_number}')
-    # print(f'RL_PPO 50th {np.percentile(env.simulator.delayvector,50)*1000}')
-    # print(f'RL_PPO 99th {np.percentile(env.simulator.delayvector,99)*1000}')
-    print(f'EDCA 50th {np.percentile(simEDCA.delayvector,50)*1000}')
-    print(f'EDCA 99th {np.percentile(simEDCA.delayvector,99)*1000}')
-    print(f'MNP 50th {np.percentile(simMNP.delayvector,50)*1000}')
-    print(f'MNP 99th {np.percentile(simMNP.delayvector,99)*1000}')
-    print(f'OP 50th {np.percentile(simOP.delayvector,50)*1000}')
-    print(f'OP 99th {np.percentile(simOP.delayvector,99)*1000}')
-    print(f'TAT 50th {np.percentile(simTAT.delayvector,50)*1000}')
-    print(f'TAT 99th {np.percentile(simTAT.delayvector,99)*1000}')
+    ### Add the other strategies
+    delay_dict.update({
+        'EDCA': EDCAdelay,
+        'MNP': MNPdelay,
+        'OP': OPdelay,
+        'TAT': TATdelay,
+    })
+
+    print(f'Iteration: {traffic_iter}')
+    print('--- 99th percentile delay results ---')
+    percentiles = {strategy: np.percentile(delay, 99) * 1000 for strategy, delay in delay_dict.items()}
+    for strategy, p99 in sorted(percentiles.items(), key=lambda x: x[1]):
+        print(f'{strategy:10s}: {p99:.2f} ms')
+
+    # print(f'Traffic Profile per STA: {traffic_profile_perSTA}')
     print('-----------------------------------------')
 
-    return
-    # return simEDCA.delayvector, simMNP.delayvector, simOP.delayvector, simTAT.delayvector
+    # save_to_h5(sim_config['output_dir'], sim, iter_number, traffic_iter, delay_dict)
 
-def save_to_h5(output_dir, sim, traffic_type, traffic_load, ITERATIONS, EDCAdelay, MNPdelay, OPdelay, TATdelay):
+    # Return traffic summary
+    traffic_summary = {
+        "traffic_profile": traffic_profile_perSTA,  # <--- compact
+        "p99_delays_ms": {strategy: float(np.percentile(delay, 99) * 1000) for strategy, delay in delay_dict.items()}
+    }
+
+    return traffic_iter, traffic_summary 
+
+
+
+def evaluate_models(models, sim_config, traffic_config, learning_config,
+                    channel_matrix, map_matrix, TxPowerMatrixTemp, comb_ok, STAs_arrivals_matrix, traffic_profile_perSTA):
+    delays = {}
+    for model_id in models:
+        np.random.seed(sim_config['seed'])  # Ensure fairness across runs
+        model = {'model_id': model_id, 'model_type': 'best_model.zip'}
+        
+        match model_id:
+            case '6cbu38xr':   # general model
+                model['model_type'] = 'model_9830400_steps.zip'       # best
+                name = 'ML-G'
+            case 'jpjju421': # Expert deployment 0
+                model['model_type'] = 'model_9984000_steps.zip'       # best
+            case '145tabtw': # Expert deployment 3
+                model['model_type'] = 'model_8601600_steps.zip'       # model_6553600_steps     model_8601600_steps [ok]        model_8652800_steps
+                name = 'ML-E'
+            case _:
+                model['model_type'] = 'best_model.zip'  # Default case for other models
+                name = model_id
+
+        simML = RLagent.evaluation(
+            traffic_config, sim_config, learning_config,
+            channel_matrix, map_matrix, TxPowerMatrixTemp, comb_ok,
+            STAs_arrivals_matrix, traffic_profile_perSTA, model
+        )
+        simML.simulator.TrafficAnalysis()
+
+        
+        plot_histogram(simML.simulator.priority_selection_counter / simML.simulator.suc_TXOPs, name=name)
+        
+        delay_vector = simML.simulator.delayvector
+        delays[model_id] = delay_vector
+    
+    return delays
+
+def save_to_h5(output_dir, sim, iter_number, traffic_iter, delay_dict):
     """
-    Saves the the delay vectors into delay.h5 files in a structured directory.
+    Saves delay metrics into an HDF5 file named 'delay.h5' in a structured directory.
+
+    Parameters:
+    - output_dir: str, base directory to save the output.
+    - sim: unused (kept for compatibility).
+    - iter_number: int or str, current deployment iteration.
+    - traffic_iter: int or str, current traffic iteration.
+    - delay_dict: dict, mapping from delay metric names to their corresponding arrays.
+                  Example: {'EDCAdelay': ..., 'ModelA': ..., 'ModelB': ..., ...}
     """
     # Create the directory structure
-    output_path = os.path.join(output_dir, sim, traffic_type, traffic_load, f"Deployment{ITERATIONS}")
+    output_path = os.path.join(output_dir, f"Deployment{iter_number}", f"Traffic{traffic_iter}")
     os.makedirs(output_path, exist_ok=True)
 
-    # Save the current ITERATIONS to its own HDF5 file
-    h5_file_path = os.path.join(output_path, f"delay.h5")
-    # Save data to HDF5 file
-    with h5py.File(h5_file_path, 'w') as f:
-        f.create_dataset('EDCAdelay', data=EDCAdelay)
-        # f.create_dataset('EDCAdelay', data=EDCAdelay, compression="gzip")   # with compression
-        f.create_dataset('MNPdelay', data=MNPdelay)
-        f.create_dataset('OPdelay', data=OPdelay)
-        f.create_dataset('TATdelay', data=TATdelay)
+    # Define the HDF5 file path
+    h5_file_path = os.path.join(output_path, "delay.h5")
+    
+    # Write all delay metrics to the HDF5 file
+    with h5py.File(h5_file_path, 'a') as f:
+        for name, data in delay_dict.items():
+            if name in f:
+                del f[name]  # Optional: overwrite specific dataset
+            f.create_dataset(name, data=data)
 
 def init_pool_processes(h5_path, use_preloaded):
     """Load HDF5 data only if required by the simulation mode"""
@@ -188,23 +370,23 @@ def init_pool_processes(h5_path, use_preloaded):
 
 # Main function
 if __name__ == "__main__":
-
-    # Start Timer
     start_time = time.time()
 
-    sim = '30-8'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
-    numbers = re.findall(r'\d+', sim) # Extract numbers from the simulation name
+    args = parse_args_from_slurm()
 
-    # Scenario-related
+    sim = '30-16'
+    numbers = re.findall(r'\d+', sim)
+
     AP_NUMBER = 4
-    STA_NUMBER = int(numbers[1]) 
+    STA_NUMBER = int(numbers[1])
     GRID_VALUE = int(numbers[0]) * 2
     SCENARIO_TYPE = 'grid'
 
-    walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
-                    [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
+    walls = np.array([
+        [0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2],
+        [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]
+    ])
 
-    # System-related parameters
     TXOP_DURATION = 5E-3
     PN_DBM = -95
     CCA = -82
@@ -212,31 +394,24 @@ if __name__ == "__main__":
     NSS = 2
     FRAME_LENGTH = 12E3
 
-    ### Channel-related parameters
     MaxTxPower, NSC = utils.TXpowerCalc(BW, NSS)
 
-    # Number of iterations
-    ITERATIONS = 100
-
+    ITERATIONS = 1
     seed_seq = SeedSequence(1)
-    seeds = seed_seq.generate_state(ITERATIONS)
+    seeds = seed_seq.generate_state(max(ITERATIONS,100))
 
-    # Deployment data path
     h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
 
-    # Traffic Configuration 
     traffic_config = {
-        'traffic_profiles': {    # Define the traffic profiles
-            'A' : {'traffic_model': 'Poisson', 'traffic_load' : 100, 'latency': 1E-4},
-            'B' : {'traffic_model': 'Bursty', 'traffic_load' : 50, 'latency': 2E-4},
-            'C' : {'traffic_model': 'CBR', 'traffic_load' : 25, 'fps': 60, 'latency': 5E-4}  # not used by now
-    },
-        'EDCAaccessCategory' : 'BE'
-    }  
-    
-    # Simulation Configuration
+        'load_min': 30,  # Minimum load in Mbps
+        'load_max': 90,  # Maximum load in Mbps
+        'EDCAaccessCategory': 'BE'
+    }
+
     sim_config = {
-        'use_preloaded_deployments': False,
+        'filtering': True,
+        'save_model': False,
+        'use_preloaded_deployments': True,
         'use_preloaded_traffic': False,
         'AP_NUMBER': AP_NUMBER,
         'STA_NUMBER': STA_NUMBER,
@@ -249,50 +424,54 @@ if __name__ == "__main__":
         'CCA': CCA,
         'NSS': NSS,
         'NSC': NSC,
-        'learning_timestamp_to_stop': 2, # seconds
+        'learning_timestamp_to_stop': 5,
         'training_flag': False,
-        'timestamp_to_stop': 5, # seconds
+        'timestamp_to_stop': 5,
         'FRAME_LENGTH': FRAME_LENGTH,
-        'EVENT_NUMBER': int(1E5), # Number of events considered for traffic generation
+        'EVENT_NUMBER': int(1E5),
         'seed': 1,
-        'output_dir': os.path.join(os.getcwd(), 'Results', sim),
-        'overheads' : utils.OverheadsCalc(traffic_config['EDCAaccessCategory'])   
+        'output_dir': os.path.join(os.getcwd(), 'Results/Simulation', '30-16 (expert3_30-90)'),
+        'overheads': utils.OverheadsCalc('BE')
     }
 
-    # Learning Configuration
     learning_config = {
-        'log_dir': os.path.join(os.getcwd(),'trained_models'),
-        'parallel_envs': 8,
-        'num_episodes': 4E6,
-        'simulator_attr' : 'simulator',
-    }  
+        'log_dir': os.path.join(os.getcwd(), 'trained_models'),
+        'parallel_envs': 10,
+        'total_timesteps': int(5E6),
+        'simulator_attr': 'simulator',
+        'project_name': args['project_name'],
+        'run_id': args['run_id'],
+        'n_steps': args['n_steps'],
+        'batch_size': args['batch_size'],
+        'initial_lr': args['initial_lr'],
+        'learning_decay': args['learning_decay'],
+        'gamma': args['gamma'],
+        'gae_lambda': args['gae_lambda'],
+        'clip_range': args['clip_range'],
+        'w_mean': args['w_mean'],
+        'episode_threshold': args['episode_threshold'],
+        'qos_threshold': args['qos_threshold'],
+        'w_sparse': args['w_sparse'],
+    }
 
-    # Run simulations with progress bar
-    max_workers = 1  # Adjust the number of workers as needed
+    if sim_config['use_preloaded_deployments']:
+        with h5py.File(h5file_deployments_path, 'r') as f:
+            STA_matrix_save = f['STA_matrix_save'][:]
+            channelMatrix_save = f['channelMatrix_save'][:]
 
-    with ProcessPoolExecutor(
-        max_workers=max_workers,
-        initializer=init_pool_processes,
-        initargs=(h5file_deployments_path, sim_config['use_preloaded_deployments'])
-        ) as executor:
+    summary_data = {}
 
-        futures = [
-            executor.submit(
-                simulate_iterations, traffic_config, sim_config, learning_config, seeds[iter_number], iter_number
-            )
-            for iter_number in range(ITERATIONS)
-        ]
-        for iter_number, future in enumerate(tqdm(futures, desc="Processing", unit=" iterations")):
-            try:
-                # EDCAdelay, MNPdelay, OPdelay, TATdelay = future.result()
-                future.result()
+    for iter_number in range(ITERATIONS):
+        deployment_key, deployment_summary = simulate_iterations(
+            traffic_config, sim_config, learning_config, seeds[iter_number], iter_number
+        )
+        summary_data[deployment_key] = deployment_summary
 
-                ### Uncoment to save the delay vectors into HDF5 files for each iterations, traffic type, and traffic load in a structured directory
-                # save_to_h5(output_dir, sim, traffic_type, traffic_load, i, EDCAdelay, MNPdelay, OPdelay, TATdelay)
-            
-            except Exception as e:
-                print(f"Error in iterations {iter_number}")
+    summary_path = os.path.join(sim_config['output_dir'], "summary.json")
+    with open(summary_path, 'w') as f:
+        json.dump(summary_data, f, indent=4)
+        
+    print(f"Summary saved to {summary_path}")
 
-    # End Timer and print elapsed time
     end_time = time.time()
     print(f"Simulation took {end_time - start_time:.2f} seconds")

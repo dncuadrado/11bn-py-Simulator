@@ -19,8 +19,6 @@ from TrafficGenerator import traffic_generator
 from DeploymentGenerator import deployment_generator
 import RLagent as RLagent
 
-from SimPyWiFi import *
-
 from CustomEnv import * # my Custom environment
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
@@ -44,9 +42,9 @@ def simulate_iterations(traffic_config, sim_config, learning_config, seed, iter_
 
     Returns:
     np.ndarray, np.ndarray, np.ndarray, np.ndarray: delay vector for EDCA, MNP, OP, and TAT.
-    """
-         
-    # Set the seed
+    """ 
+
+    # # Set the seed
     np.random.seed(seed)
 
     # Deployment
@@ -77,6 +75,7 @@ def simulate_iterations(traffic_config, sim_config, learning_config, seed, iter_
     if len(TxPowerMatrix) != len(CGs_STAs):
         raise ValueError('TxPowerMatrix and CGs_STAs have different lengths')
 
+
     ### Traffic dataset
     # Load the traffic dataset. Uncomment if using pre-saved dataset.
     if sim_config['use_preloaded_traffic']:
@@ -85,21 +84,37 @@ def simulate_iterations(traffic_config, sim_config, learning_config, seed, iter_
         with h5py.File(h5_file_path, 'r') as h5file:
             STAs_arrivals_matrix = [h5file[key][:] for key in h5file.keys()]
     else:
-        # # # Generate the traffic dataset for the current value of iterations. Comment if using pre-saved dataset.
+        # # # Generate the traffic dataset for the current value of ITERATIONS. Comment if using pre-saved dataset.
+        # Assign a traffic profile to each STA
+        # np.random.seed(5)
+        traffic_config['traffic_profile_perSTA'] = np.random.choice(['A'], size=STA_NUMBER).tolist()
+
         STAs_arrivals_matrix = traffic_generator(
                 traffic_config,
                 sim_config
                 ) 
 
 
-    # model = 'l9dthv3v'
-    # env = RLagent.evaluation(map_matrix, TxPowerMatrixTemp, comb_ok, datarate, STAs_arrivals_matrix, sim_config, learning_config, model)
+    
+    # bs7jfsl0
+    # wb84l6qw
+
+    # 6kntlckb
+    # qu0wxv8s
+    
+
+    # np.random.seed(sim_config['seed'])
+    # model = {'model_id':'6kntlckb', 'model_type': 'model.zip'}   # model type: 'model.zip'
+    # env = RLagent.evaluation(traffic_config, sim_config, learning_config, map_matrix, TxPowerMatrixTemp, comb_ok, datarate, STAs_arrivals_matrix, model)
     # env.simulator.TrafficAnalysis()
 
-    np.random.seed(seed)
-    env = simpy.Environment()
-    network = SimPyWiFiNetwork(env, sim_config)
-    network.run()
+    # np.random.seed(sim_config['seed'])
+    # model1 = {'model_id':'qu0wxv8s', 'model_type': 'model.zip'}   # model type: 'model.zip'
+    # env1 = RLagent.evaluation(traffic_config, sim_config, learning_config, map_matrix, TxPowerMatrixTemp, comb_ok, datarate, STAs_arrivals_matrix, model1)
+    # env1.simulator.TrafficAnalysis()
+
+    # Start Timer
+    start_time = time.time()
 
     np.random.seed(sim_config['seed'])
     simEDCA = MAPCsim(sim_config)  # new "MAPC simulator" object
@@ -109,71 +124,76 @@ def simulate_iterations(traffic_config, sim_config, learning_config, seed, iter_
     simEDCA.accessCategory = traffic_config['EDCAaccessCategory']
     simEDCA.InitSettings()  # Initializing STAs
     simEDCA.Run()
+    print(f"Simulation took {time.time() - start_time:.2f} seconds")
+    # np.random.seed(sim_config['seed'])
+    # simMNP = MAPCsim(sim_config)  # new "MAPC simulator" object
+    # simMNP.timestamp_to_stop = sim_config['timestamp_to_stop']
+    # simMNP.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
+    # simMNP.simulation_system = 'CSR'
+    # simMNP.scheduler = 'MNP'
+    # simMNP.CGs_STAs = CGs_STAs
+    # simMNP.TxPowerMatrix = TxPowerMatrix
+    # simMNP.accessCategory = traffic_config['EDCAaccessCategory']
+    # simMNP.InitSettings()  # Initializing STAs
+    # simMNP.Run()
 
+    # np.random.seed(sim_config['seed'])
+    # simOP = MAPCsim(sim_config)  # new "MAPC simulator" object
+    # simOP.timestamp_to_stop = sim_config['timestamp_to_stop']
+    # simOP.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
+    # simOP.simulation_system = 'CSR'
+    # simOP.scheduler = 'OP'
+    # simOP.CGs_STAs = CGs_STAs
+    # simOP.TxPowerMatrix = TxPowerMatrix
+    # simOP.accessCategory = traffic_config['EDCAaccessCategory']
+    # simOP.InitSettings()  # Initializing STAs
+    # simOP.Run()
 
-    np.random.seed(sim_config['seed'])
-    simMNP = MAPCsim(sim_config)  # new "MAPC simulator" object
-    simMNP.timestamp_to_stop = sim_config['timestamp_to_stop']
-    simMNP.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
-    simMNP.simulation_system = 'CSR'
-    simMNP.scheduler = 'MNP'
-    simMNP.CGs_STAs = CGs_STAs
-    simMNP.TxPowerMatrix = TxPowerMatrix
-    simMNP.accessCategory = traffic_config['EDCAaccessCategory']
-    simMNP.InitSettings()  # Initializing STAs
-    simMNP.Run()
-
-    np.random.seed(sim_config['seed'])
-    simOP = MAPCsim(sim_config)  # new "MAPC simulator" object
-    simOP.timestamp_to_stop = sim_config['timestamp_to_stop']
-    simOP.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
-    simOP.simulation_system = 'CSR'
-    simOP.scheduler = 'OP'
-    simOP.CGs_STAs = CGs_STAs
-    simOP.TxPowerMatrix = TxPowerMatrix
-    simOP.accessCategory = traffic_config['EDCAaccessCategory']
-    simOP.InitSettings()  # Initializing STAs
-    simOP.Run()
-
-    np.random.seed(sim_config['seed'])
-    simTAT = MAPCsim(sim_config)  # new "MAPC simulator" object
-    simTAT.timestamp_to_stop = sim_config['timestamp_to_stop']
-    simTAT.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
-    simTAT.simulation_system = 'CSR'
-    simTAT.scheduler = 'TAT'
-    simTAT.CGs_STAs = CGs_STAs
-    simTAT.TxPowerMatrix = TxPowerMatrix
-    simTAT.accessCategory = traffic_config['EDCAaccessCategory']
-    simTAT.alpha = 0.5
-    simTAT.beta = 0.5
-    simTAT.InitSettings()  # Initializing STAs
-    simTAT.Run()
+    # np.random.seed(sim_config['seed'])
+    # simTAT = MAPCsim(sim_config)  # new "MAPC simulator" object
+    # simTAT.timestamp_to_stop = sim_config['timestamp_to_stop']
+    # simTAT.STA_queue_timeline = STAs_arrivals_matrix  # Loading the traffic dataset and assigning it to the STAs
+    # simTAT.simulation_system = 'CSR'
+    # simTAT.scheduler = 'TAT'
+    # simTAT.CGs_STAs = CGs_STAs
+    # simTAT.TxPowerMatrix = TxPowerMatrix
+    # simTAT.accessCategory = traffic_config['EDCAaccessCategory']
+    # simTAT.alpha = 0.5
+    # simTAT.beta = 0.5
+    # simTAT.InitSettings()  # Initializing STAs
+    # simTAT.Run()
 
     print(f'Iteration: {iter_number}')
+    # print(f'DelayReward 50th {np.percentile(env.simulator.delayvector,50)*1000}')
+    # print(f'DelayReward 99th {np.percentile(env.simulator.delayvector,99)*1000}')
+
+    # print(f'CombinedReward 50th {np.percentile(env1.simulator.delayvector,50)*1000}')
+    # print(f'CombinedReward 99th {np.percentile(env1.simulator.delayvector,99)*1000}')
+
     # print(f'RL_PPO 50th {np.percentile(env.simulator.delayvector,50)*1000}')
     # print(f'RL_PPO 99th {np.percentile(env.simulator.delayvector,99)*1000}')
     print(f'EDCA 50th {np.percentile(simEDCA.delayvector,50)*1000}')
     print(f'EDCA 99th {np.percentile(simEDCA.delayvector,99)*1000}')
-    print(f'MNP 50th {np.percentile(simMNP.delayvector,50)*1000}')
-    print(f'MNP 99th {np.percentile(simMNP.delayvector,99)*1000}')
-    print(f'OP 50th {np.percentile(simOP.delayvector,50)*1000}')
-    print(f'OP 99th {np.percentile(simOP.delayvector,99)*1000}')
-    print(f'TAT 50th {np.percentile(simTAT.delayvector,50)*1000}')
-    print(f'TAT 99th {np.percentile(simTAT.delayvector,99)*1000}')
+    # print(f'MNP 50th {np.percentile(simMNP.delayvector,50)*1000}')
+    # print(f'MNP 99th {np.percentile(simMNP.delayvector,99)*1000}')
+    # print(f'OP 50th {np.percentile(simOP.delayvector,50)*1000}')
+    # print(f'OP 99th {np.percentile(simOP.delayvector,99)*1000}')
+    # print(f'TAT 50th {np.percentile(simTAT.delayvector,50)*1000}')
+    # print(f'TAT 99th {np.percentile(simTAT.delayvector,99)*1000}')
     print('-----------------------------------------')
 
     return
     # return simEDCA.delayvector, simMNP.delayvector, simOP.delayvector, simTAT.delayvector
 
-def save_to_h5(output_dir, sim, traffic_type, traffic_load, iterations, EDCAdelay, MNPdelay, OPdelay, TATdelay):
+def save_to_h5(output_dir, sim, traffic_type, traffic_load, ITERATIONS, EDCAdelay, MNPdelay, OPdelay, TATdelay):
     """
     Saves the the delay vectors into delay.h5 files in a structured directory.
     """
     # Create the directory structure
-    output_path = os.path.join(output_dir, sim, traffic_type, traffic_load, f"Deployment{iterations}")
+    output_path = os.path.join(output_dir, sim, traffic_type, traffic_load, f"Deployment{ITERATIONS}")
     os.makedirs(output_path, exist_ok=True)
 
-    # Save the current iterations to its own HDF5 file
+    # Save the current ITERATIONS to its own HDF5 file
     h5_file_path = os.path.join(output_path, f"delay.h5")
     # Save data to HDF5 file
     with h5py.File(h5_file_path, 'w') as f:
@@ -194,12 +214,12 @@ def init_pool_processes(h5_path, use_preloaded):
 # Main function
 if __name__ == "__main__":
 
-    # Start Timer
-    start_time = time.time()
+    # # Start Timer
+    # start_time = time.time()
 
-    sim = '20-8'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
+    sim = '30-16'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
     numbers = re.findall(r'\d+', sim) # Extract numbers from the simulation name
-    
+
     # Scenario-related
     AP_NUMBER = 4
     STA_NUMBER = int(numbers[1]) 
@@ -208,7 +228,7 @@ if __name__ == "__main__":
 
     walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
                     [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
-    
+
     # System-related parameters
     TXOP_DURATION = 5E-3
     PN_DBM = -95
@@ -229,31 +249,28 @@ if __name__ == "__main__":
     # Deployment data path
     h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
 
-    # Define the traffic profiles
-    traffic_profiles = {
-        'A' : {'traffic_model': 'Poisson', 'traffic_load' : 100, 'latency': 1E-4},
-        'B' : {'traffic_model': 'Bursty', 'traffic_load' : 50, 'latency': 2E-4},
-        'C' : {'traffic_model': 'CBR', 'traffic_load' : 25, 'fps': 60, 'latency': 5E-4}
-    }
+    # # Traffic Configuration 
+    # traffic_config = {
+    #     'traffic_profiles': {    # Define the traffic profiles
+    #         'A' : {'traffic_model': 'Poisson', 'traffic_load' : 100, 'latency': 1E-4},
+    #         'B' : {'traffic_model': 'Bursty', 'traffic_load' : 50, 'latency': 2E-4},
+    #         'C' : {'traffic_model': 'CBR', 'traffic_load' : 25, 'fps': 60, 'latency': 5E-4}  # not used by now
+    # },
+    #     'EDCAaccessCategory' : 'BE'
+    # }  
 
-    # Assign a traffic profile to each STA
-    traffic_profile_perSTA = np.random.choice(['A','B', 'C'], size=STA_NUMBER).tolist()
 
     # Traffic Configuration 
     traffic_config = {
-        'traffic_profiles': traffic_profiles,
-        'traffic_profile_perSTA': traffic_profile_perSTA,
-        'EDCAaccessCategory' : [
-            {'Poisson': 'BE',
-            'Bursty': 'BE',
-            'CBR': 'VI'
-            }.get(traffic_profiles[traffic_profile_perSTA[i]]['traffic_model'], None) 
-            for i in range(STA_NUMBER)]
+        'traffic_profiles': {    # Define the traffic profiles
+            'A' : {'traffic_model': 'Poisson', 'traffic_load' : 12, 'latency': 1E-4},
+    },
+        'EDCAaccessCategory' : 'BE'
     }  
     
     # Simulation Configuration
     sim_config = {
-        'use_preloaded_deployments': False,
+        'use_preloaded_deployments': True,
         'use_preloaded_traffic': False,
         'AP_NUMBER': AP_NUMBER,
         'STA_NUMBER': STA_NUMBER,
@@ -261,10 +278,6 @@ if __name__ == "__main__":
         'GRID_VALUE': GRID_VALUE,
         'walls': walls,
         'MaxTxPower': MaxTxPower,
-        'cw_min': {'ap': 16, 'sta': 16},
-        'cw_max': 1023,
-        'max_backoff_stage': 6,
-        'aifs': {'ap': 43e-6, 'sta': 43e-6},
         'TXOP_DURATION': TXOP_DURATION,
         'PN_DBM': PN_DBM,
         'CCA': CCA,
@@ -274,24 +287,10 @@ if __name__ == "__main__":
         'training_flag': False,
         'timestamp_to_stop': 5, # seconds
         'FRAME_LENGTH': FRAME_LENGTH,
-        'dl_rate': 8000,
-        'ul_rate': 500,
-        'uplink': False,
         'EVENT_NUMBER': int(1E5), # Number of events considered for traffic generation
         'seed': 1,
-        'output_dir': os.path.join(os.getcwd(), 'traffic datasets', sim),
-        'overheads' : {
-            key: [
-                utils.OverheadsCalc(traffic_config['EDCAaccessCategory'][i])[idx]
-                for i in range(STA_NUMBER)
-            ]
-            for idx, key in enumerate([
-                'preTX_overheadsEDCA',
-                'preTX_overheadsCSR',
-                'EDCAoverheads',
-                'CSRoverheads'
-            ])
-        }
+        'output_dir': os.path.join(os.getcwd(), 'Results', sim),
+        'overheads' : utils.OverheadsCalc(traffic_config['EDCAaccessCategory'])   
     }
 
     # Learning Configuration
@@ -328,6 +327,6 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"Error in iterations {iter_number}")
 
-    # End Timer and print elapsed time
-    end_time = time.time()
-    print(f"Simulation took {end_time - start_time:.2f} seconds")
+    # # End Timer and print elapsed time
+    # end_time = time.time()
+    # print(f"Simulation took {end_time - start_time:.2f} seconds")

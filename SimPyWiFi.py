@@ -5,6 +5,7 @@ from numpy.random import SeedSequence
 import time
 import os
 from collections import deque
+import h5py
 import bisect
 import Utils as utils
 from TrafficGenerator import traffic_generator
@@ -56,7 +57,6 @@ class SimPyWiFiNetwork:
                 config=self.config,
                 is_ap=True
             )
-            ap._reset_backoff()
             self.aps.append(ap)
             self.nodes.append(ap)
         
@@ -99,6 +99,11 @@ class SimPyWiFiNetwork:
     def scheduling(self, node_id):
         """Selects STA with oldest packet using efficient timestamp tracking"""
         ap = self.nodes[node_id]
+
+        valid_stas = [sta for sta in ap.associated_stas if len(ap.queues[sta]) > 0]  
+    
+        if not valid_stas:
+            return None, -1  # Prevent scheduling empty queues
         
         # Fast path for single-STA case
         if len(ap.associated_stas) == 1:
@@ -106,6 +111,7 @@ class SimPyWiFiNetwork:
         
         # Precompute STA indices and their first packet timestamps
         oldest_time = float('inf')
+        # print(f'Timestamp: {self.env.now}')
         selected_sta = -1
         
         for sta in ap.associated_stas:
@@ -131,7 +137,7 @@ class SimPyWiFiNetwork:
         
         # Update NAV if duration is provided
         if duration > 0:
-            self.nav = max(self.nav, self.env.now + duration)
+            self.nav = max(self.nav, self.env.now + duration + SIFS)
 
     def run(self):
         for node in self.nodes:
@@ -215,9 +221,11 @@ class NetworkNode:
         """Handles channel contention and transmission for one TXOP"""
         try:
             while True:
-                # # Check if any queues have packets (APs check all STA queues)
-                # has_packets = (any(len(q) > 0 for q in self.queues.values()) 
-                #             if self.is_ap else len(self.queue) > 0)
+                
+                # Exit condition when no packets remain
+                if self.is_ap and not any(len(q) > 0 for q in self.queues.values()):
+                    break  # NEW: Exit loop for empty APs
+
                
                 if not np.any(self.packet_availability()!= 0): 
                     yield self.env.timeout(SLOT_TIME)
@@ -232,12 +240,12 @@ class NetworkNode:
                         # Wait for NAV to expire if needed
                         if self.env.now < self.network.nav:
                             remaining_nav = self.network.nav - self.env.now
-                            yield self.env.timeout(remaining_nav + SLOT_TIME)
+                            yield self.env.timeout(remaining_nav)
                         continue
 
                 # Check for collisions
                 contenders = [n for n in self.network.nodes 
-                            if n.backoff_counter == 0 and np.any(n.packet_availability()!= 0) and n != self]
+                            if n.backoff_counter == 0 and np.any(n.packet_availability()!= 0)]
                 
                 if len(contenders) > 1:
                     self.network.stats['collisions'] += 1
@@ -253,6 +261,7 @@ class NetworkNode:
                     yield self.env.process(self._transmit_data(rx_nodes))
         finally:
             self.contention_process_active = False  # Allow new process to start
+            self._reset_backoff()  # NEW: Ensure clean state
 
     def _attempt_rts_cts(self):
         duration = RTS_DURATION + SIFS + CTS_DURATION + SIFS
@@ -283,6 +292,7 @@ class NetworkNode:
             interference = np.sum(H * P, axis=1) - np.diag(H) * P if H.ndim == 2 else 0
             sinr_db = 10 * np.log10(signal_power / (self.noise_power + interference))
 
+        TODO 
         # MCS related parameters 
         MCS, N_bps, Rc = utils.MCS_cal_PER_001(sinr_db)
         
@@ -293,7 +303,7 @@ class NetworkNode:
         else:
             Pe = 0.01  # 1% PER example,
 
-        data_tx_time = self.config['TXOP_DURATION'] - utils.OverheadsCalc('BE')[2]
+        data_tx_time = self.config['TXOP_DURATION'] - utils.OverheadsCalc('BE')['EDCAoverheads']
         agg_packets = utils.tx_packets(self.config['NSC'], N_bps, Rc, self.config['NSS'], data_tx_time)
 
         tx_packet_number = min(available_packets, agg_packets)
@@ -310,6 +320,9 @@ class NetworkNode:
         # # Process packets
         success_mask = np.random.rand(tx_packet_number) 
         rx_packets = [queue.popleft() for packet_id in range(tx_packet_number) if success_mask[packet_id] > Pe]
+
+        # Update the packet counter for the STA
+        self.network.packet_counter[rx_node.node_id] -= len(rx_packets)
 
         # Notify network of activity
         self.network.notify_activity(action='TX_DATA', node_id=self.node_id, duration=tx_time)
@@ -339,8 +352,8 @@ class NetworkNode:
         yield self.env.timeout(self.aifs)
         # Reset backoff counter
         self._reset_backoff()
-        # Start the new contention process
-        yield self.env.process(self.contention_process())
+        # # Start the new contention process
+        # yield self.env.process(self.contention_process())
     
     def packet_availability(self):
         return self.network.packet_counter[self.network.association[self.node_id]]
@@ -350,8 +363,13 @@ class NetworkNode:
         self._reset_backoff()
 
     def _reset_backoff(self):
-        self.cw = min(self.cw_min * (2 ** self.backoff_stage), self.cw_max)
-        self.backoff_counter = np.random.randint(0, self.cw)
+        # Only reset if packets exist
+        if (self.is_ap and any(len(q) > 0 for q in self.queues.values())) or \
+        (not self.is_ap and len(self.queue) > 0):
+            self.cw = min(self.cw_min * (2 ** self.backoff_stage), self.cw_max)
+            self.backoff_counter = np.random.randint(0, self.cw)
+        else:
+            self.backoff_counter = -1  # Flag for no packets
 
 class AccessPoint(NetworkNode):
     pass
@@ -360,10 +378,10 @@ class Station(NetworkNode):
     pass
 
 if __name__ == "__main__":
-        # Start Timer
-    start_time = time.time()
+    # # Start Timer
+    # start_time = time.time()
 
-    sim = '20-16'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
+    sim = '30-16'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
     numbers = re.findall(r'\d+', sim) # Extract numbers from the simulation name
     
     # Scenario-related
@@ -407,19 +425,17 @@ if __name__ == "__main__":
 
     # Traffic Configuration 
     traffic_config = {
-        'traffic_profiles': traffic_profiles,
-        'traffic_profile_perSTA': traffic_profile_perSTA,
-        'EDCAaccessCategory' : [
-            {'Poisson': 'BE',
-            'Bursty': 'BE',
-            'CBR': 'VI'
-            }.get(traffic_profiles[traffic_profile_perSTA[i]]['traffic_model'], None) 
-            for i in range(STA_NUMBER)]
-    }  
+        'traffic_profiles': {    # Define the traffic profiles
+            'A' : {'traffic_model': 'Poisson', 'traffic_load' : 100, 'latency': 1E-4},
+            'B' : {'traffic_model': 'Bursty', 'traffic_load' : 50, 'latency': 2E-4},
+            'C' : {'traffic_model': 'CBR', 'traffic_load' : 25, 'fps': 60, 'latency': 5E-4}  # not used by now
+    },
+        'EDCAaccessCategory' : 'BE'
+    } 
 
     # Simulation Configuration
     sim_config = {
-        'use_preloaded_deployments': False,
+        'use_preloaded_deployments': True,
         'use_preloaded_traffic': False,
         'AP_NUMBER': AP_NUMBER,
         'STA_NUMBER': STA_NUMBER,
@@ -438,33 +454,33 @@ if __name__ == "__main__":
         'NSC': NSC,
         'learning_timestamp_to_stop': 2, # seconds
         'training_flag': False,
-        'timestamp_to_stop': 10, # seconds
+        'timestamp_to_stop': 5, # seconds
         'FRAME_LENGTH': FRAME_LENGTH, 
-        'dl_rate': 4000,
+        'dl_rate': 1000,
         'ul_rate': 500,
         'uplink': False,
         'EVENT_NUMBER': int(1E5), # Number of events considered for traffic generation
         'seed': 1,
         'output_dir': os.path.join(os.getcwd(), 'traffic datasets', sim),
-        'overheads' : {
-            key: [
-                utils.OverheadsCalc(traffic_config['EDCAaccessCategory'][i])[idx]
-                for i in range(STA_NUMBER)
-            ]
-            for idx, key in enumerate([
-                'preTX_overheadsEDCA',
-                'preTX_overheadsCSR',
-                'EDCAoverheads',
-                'CSRoverheads'
-            ])
-        }
+        'overheads' : utils.OverheadsCalc(traffic_config['EDCAaccessCategory'])
     }
 
     # Deployment
     _, _, sim_config['association'], sim_config['channelMatrix'] = deployment_generator(sim_config, sim_config['seed'])
 
+    # Deployment data path
+    h5file_deployments_path = os.path.join(os.getcwd(), 'deployments datasets', sim, 'deployment_datasets.h5')
 
+    # Use pre-loaded data (if enabled)
+    if sim_config['use_preloaded_deployments']:
+        with h5py.File(h5file_deployments_path, 'r') as f:
+            STA_matrix_save = f['STA_matrix_save'][:]
+            channelMatrix_save = f['channelMatrix_save'][:]
+        STA_matrix = STA_matrix_save[:, :, 0]
+        sim_config['channelMatrix'] = channelMatrix_save[:, :, 0]
 
+    # Start Timer
+    start_time = time.time()
     np.random.seed(sim_config['seed'])
     env = simpy.Environment()
     network = SimPyWiFiNetwork(env, sim_config)
