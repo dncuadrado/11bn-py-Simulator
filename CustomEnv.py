@@ -183,8 +183,8 @@ class CustomEnv(gym.Env):
             self.simulator.TrafficAnalysis()
             prctile99 = [np.percentile(self.simulator.delay_per_STA[sta],99) for sta in range(self.sim_config['STA_NUMBER'])]
 
-            info['total_percentile99'] = -np.percentile(self.simulator.delayvector,99)
-            info['worst_percentile99'] = -max(prctile99)
+            info['total_percentile99'] = np.percentile(self.simulator.delayvector,99)
+            info['worst_percentile99'] = max(prctile99)
             info['mean_rew_shaping'] = np.mean(self.reward_shaping)
             info['mean_long_term_rew'] = np.mean(self.long_term_reward)
             info['mean_reward'] = np.mean(self.reward)
