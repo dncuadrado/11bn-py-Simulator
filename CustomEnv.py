@@ -65,10 +65,6 @@ class CustomEnv(gym.Env):
         self.training_episode_counter = int(0)  # Counter for the number of episodes
         self.episode_counter_threshold =  learning_config['episode_threshold']  # Number of episodes to wait before generating a new deployment
 
-        self.w_sparse = learning_config['w_sparse']  # Weight for the sparse reward
-        self.w_short_term = 1 - self.w_sparse  # Weight for the short term reward
-        self.w_packet_rew = 1 - self.w_sparse
-
     def reset(self, seed=None, STAs_arrivals_matrix=None, traffic_profile_perSTA=None, is_deloyment_fixed=False):
         """
         Resets the environment to the initial state. Get the observation in the initial state
