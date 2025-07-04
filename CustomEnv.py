@@ -163,8 +163,8 @@ class CustomEnv(gym.Env):
         # Execute the action
         self.simulator.run_step(self.agent_decision)
 
-        if self.agent_decision is None:
-            self.simulator.sim_timeline += 48E-6 + 34E-6 + 9E-6  # the agent decides to wait a little more (no tx) ---> fake_frame + DIFS + Te
+        # if self.agent_decision is None:
+        #     self.simulator.sim_timeline += 48E-6 + 34E-6 + 9E-6  # the agent decides to wait a little more (no tx) ---> fake_frame + DIFS + Te
             
         # Forward the simulation
         self.simulator.sim_forward()
