@@ -56,16 +56,14 @@ def parse_args_from_slurm():
     parser = argparse.ArgumentParser()
     parser.add_argument('--project_name', type=str, default='sb3-HPC-NEW')
     parser.add_argument('--run_id', type=str, default=None)
-    parser.add_argument('--n_steps', type=int, default=2048)                 # default --- 2048    128               
-    parser.add_argument('--batch_size', type=int, default=64)              # default --- 64        64
-    parser.add_argument('--initial_lr', type=float, default=8E-4)       # default --- 3e-4              
+    parser.add_argument('--n_steps', type=int, default=128)                 # default --- 2048    128               
+    parser.add_argument('--batch_size', type=int, default=256)              # default --- 64        64
+    parser.add_argument('--initial_lr', type=float, default=6.5E-4)       # default --- 3e-4              
     parser.add_argument('--learning_decay', type=str, default='cosine') # default --- 'cosine', 'linear', 'exp', 'square'
     parser.add_argument('--gamma', type=float, default=0.99)               # default --- 0.99
     parser.add_argument('--gae_lambda', type=float, default=0.95)          # default --- 0.95
     parser.add_argument('--clip_range', type=float, default=0.2)           # default --- 0.2
-    parser.add_argument('--w_mean', type=float, default=0.13)            # default --- 0.13
     parser.add_argument('--episode_threshold', type=int, default=0) 
-    parser.add_argument('--w_sparse', type=float, default=0.5)            # default --- 0.13
 
 
     args = parser.parse_args()
@@ -333,9 +331,7 @@ def training(traffic_config, sim_config, learning_config, iter_number=None):
         "gamma": learning_config['gamma'],
         "gae_lambda": learning_config['gae_lambda'],
         "clip_range": learning_config['clip_range'],
-        "w_mean": learning_config['w_mean'],
         "episode_threshold": learning_config['episode_threshold'],
-        "w_sparse": learning_config['w_sparse'],
     })
     
     ### Add WandbCallback
@@ -487,7 +483,7 @@ if __name__ == '__main__':
     learning_config = {
         'log_dir': os.path.join(os.getcwd(), 'trained_models'),
         'parallel_envs': min(os.cpu_count(), 10),  # Number of parallel environments
-        'total_timesteps': int(20E6),
+        'total_timesteps': int(10E6),
         'simulator_attr': 'simulator',
         'project_name': args['project_name'],
         'run_id': args['run_id'],
@@ -498,9 +494,7 @@ if __name__ == '__main__':
         'gamma': args['gamma'],
         'gae_lambda': args['gae_lambda'],
         'clip_range': args['clip_range'],  
-        'w_mean': args['w_mean'],
         'episode_threshold': args['episode_threshold'],
-        'w_sparse': args['w_sparse'],
     }
     
     try:
