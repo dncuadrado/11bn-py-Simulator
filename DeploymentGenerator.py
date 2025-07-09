@@ -54,7 +54,7 @@ if __name__ == '__main__':
     # Start Timer
     start_time = time.time()
 
-    sim = '20-8'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
+    sim = '30-20'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
     numbers = re.findall(r'\d+', sim) # Extract numbers from the simulation name
 
     # Scenario-related
