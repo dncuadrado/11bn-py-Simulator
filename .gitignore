@@ -1,1 +1,18 @@
+# Simulation output and datasets
+deployments_datasets/
+traffic_datasets/
+simulation_saves/
+trained_models/
+
+# Experiment logs
+code/wandb/
+wandb/
+
+# Python cache and temporary files
 __pycache__/
+*.py[cod]
+*.log
+
+# OS-specific files
+.DS_Store
+Thumbs.db
