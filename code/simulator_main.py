@@ -6,7 +6,6 @@ Simulator for IEEE 802.11bn
 
 import time
 import os
-from turtle import speed
 import h5py
 import numpy as np
 import re
@@ -15,26 +14,16 @@ from tqdm import tqdm
 from numpy.random import SeedSequence
 import argparse
 import json
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import utils as utils
-# Import constants
 from constants import SYSTEM, MAC, CHANNEL
-
 from mapc_sim import *
 from traffic_generator import traffic_generator
 from deployment_generator import deployment_generator
 import rl_agent as rl_agent
-import mab as mab
-from linucb_agent import LinUCBAgent
 from utils import plot_histogram
-
-from custom_env import * # my Custom environment
-from stable_baselines3 import PPO
-from stable_baselines3.common.monitor import Monitor
-
-from sb3_contrib import MaskablePPO 
-from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from custom_env import * 
 
 global STA_matrix_save, channelMatrix_save, summary_data
 
@@ -201,18 +190,8 @@ def run_traffic_iteration(
     delay_dict = {}
 
     # # Evaluate models
-    models = ['n3aw1xwl','9fn7cep9', '51b85wb8','i51y44rs', 'n428fyan','xv2wyufz']
-    # models = [] # best mab models (already evaluated)
-
+    models = [] # best mab models (already evaluated)
     models.append('6cbu38xr')  # general model 16 stas'
-    # # models= '145tabtw'   # Expert deployment 3
-    # models = 't46rm3le'    # general 8 stas
-    # models = 'tffl24sj'    # general 12 stas
-    # models = '3x0yf1u0'    # general 20 stas
-
-    # models.append(mab_models)
-    # # # # # # # # Add additional ML models
-
     ml_results = evaluate_models(models, sim_config, traffic_config, learning_config, mobility_config, sta_mobility,
                                 channel_matrix, map_matrix, tx_power_matrix_temp, comb_ok, stas_arrivals_matrix, iter_number)
     
@@ -232,72 +211,72 @@ def run_traffic_iteration(
     # # edca_delay = sim_edca.delay_vector
 
 
-    # # reducing the tx power matrix and cgs_stas according to comb_ok
-    # tx_power_matrix = [row.tolist() for i, row in enumerate(tx_power_matrix_temp) if comb_ok[i]]
-    # cgs_stas = [row.tolist() for i, row in enumerate(map_matrix) if comb_ok[i]]
-    # if len(tx_power_matrix) != len(cgs_stas):
-    #     raise ValueError('Mismatch between TxPowerMatrix and CGs_STAs')
+    # reducing the tx power matrix and cgs_stas according to comb_ok
+    tx_power_matrix = [row.tolist() for i, row in enumerate(tx_power_matrix_temp) if comb_ok[i]]
+    cgs_stas = [row.tolist() for i, row in enumerate(map_matrix) if comb_ok[i]]
+    if len(tx_power_matrix) != len(cgs_stas):
+        raise ValueError('Mismatch between TxPowerMatrix and CGs_STAs')
     
-    # # MNP
-    # np.random.seed(sim_config['seed'])
-    # sim_mnp = MAPCsim(sim_config, mobility_config=mobility_config)
-    # sim_mnp.sta_mobility = sta_mobility
-    # sim_mnp.timestamp_to_stop = sim_config['timestamp_to_stop']
-    # sim_mnp.channel_matrix = channel_matrix.copy()
-    # sim_mnp.sta_queue_timeline = copy.deepcopy(stas_arrivals_matrix)
-    # sim_mnp.simulation_system = 'csr'
-    # sim_mnp.scheduler = 'mnp'
-    # sim_mnp.cgs_stas = copy.deepcopy(cgs_stas)
-    # sim_mnp.tx_power_matrix = copy.deepcopy(tx_power_matrix)
-    # sim_mnp.access_category = traffic_config['edca_access_category']
-    # sim_mnp.init_settings()
-    # sim_mnp.run()
-    # mnp_delay = sim_mnp.delay_vector
-    # # plot_histogram(sim_mnp.priority_selection_counter / sim_mnp.suc_txops, name='MNP')
+    # MNP
+    np.random.seed(sim_config['seed'])
+    sim_mnp = MAPCsim(sim_config, mobility_config=mobility_config)
+    sim_mnp.sta_mobility = sta_mobility
+    sim_mnp.timestamp_to_stop = sim_config['timestamp_to_stop']
+    sim_mnp.channel_matrix = channel_matrix.copy()
+    sim_mnp.sta_queue_timeline = copy.deepcopy(stas_arrivals_matrix)
+    sim_mnp.simulation_system = 'csr'
+    sim_mnp.scheduler = 'mnp'
+    sim_mnp.cgs_stas = copy.deepcopy(cgs_stas)
+    sim_mnp.tx_power_matrix = copy.deepcopy(tx_power_matrix)
+    sim_mnp.access_category = traffic_config['edca_access_category']
+    sim_mnp.init_settings()
+    sim_mnp.run()
+    mnp_delay = sim_mnp.delay_vector
+    # plot_histogram(sim_mnp.priority_selection_counter / sim_mnp.suc_txops, name='MNP')
 
-    # # OP
-    # np.random.seed(sim_config['seed'])
-    # sim_op = MAPCsim(sim_config, mobility_config=mobility_config)
-    # sim_op.sta_mobility = sta_mobility
-    # sim_op.timestamp_to_stop = sim_config['timestamp_to_stop']
-    # sim_op.channel_matrix = channel_matrix.copy()
-    # sim_op.sta_queue_timeline = copy.deepcopy(stas_arrivals_matrix)
-    # sim_op.simulation_system = 'csr'
-    # sim_op.scheduler = 'op'
-    # sim_op.cgs_stas = copy.deepcopy(cgs_stas)
-    # sim_op.tx_power_matrix = copy.deepcopy(tx_power_matrix)
-    # sim_op.access_category = traffic_config['edca_access_category']
-    # sim_op.init_settings()
-    # sim_op.run()
-    # op_delay = sim_op.delay_vector
-    # # plot_histogram(sim_op.priority_selection_counter / sim_op.suc_txops, name='OP')
+    # OP
+    np.random.seed(sim_config['seed'])
+    sim_op = MAPCsim(sim_config, mobility_config=mobility_config)
+    sim_op.sta_mobility = sta_mobility
+    sim_op.timestamp_to_stop = sim_config['timestamp_to_stop']
+    sim_op.channel_matrix = channel_matrix.copy()
+    sim_op.sta_queue_timeline = copy.deepcopy(stas_arrivals_matrix)
+    sim_op.simulation_system = 'csr'
+    sim_op.scheduler = 'op'
+    sim_op.cgs_stas = copy.deepcopy(cgs_stas)
+    sim_op.tx_power_matrix = copy.deepcopy(tx_power_matrix)
+    sim_op.access_category = traffic_config['edca_access_category']
+    sim_op.init_settings()
+    sim_op.run()
+    op_delay = sim_op.delay_vector
+    # plot_histogram(sim_op.priority_selection_counter / sim_op.suc_txops, name='OP')
 
-    # # TAT
-    # np.random.seed(sim_config['seed'])
-    # sim_tat = MAPCsim(sim_config, mobility_config=mobility_config)
-    # sim_tat.sta_mobility = sta_mobility
-    # sim_tat.timestamp_to_stop = sim_config['timestamp_to_stop']
-    # sim_tat.channel_matrix = channel_matrix.copy()
-    # sim_tat.sta_queue_timeline = copy.deepcopy(stas_arrivals_matrix)
-    # sim_tat.simulation_system = 'csr'
-    # sim_tat.scheduler = 'tat'
-    # sim_tat.cgs_stas = copy.deepcopy(cgs_stas)
-    # sim_tat.tx_power_matrix = copy.deepcopy(tx_power_matrix)
-    # sim_tat.access_category = traffic_config['edca_access_category']
-    # sim_tat.alpha = 0.5
-    # sim_tat.beta = 0.5
-    # sim_tat.init_settings()
-    # sim_tat.run()
-    # tat_delay = sim_tat.delay_vector
-    # # plot_histogram(sim_tat.priority_selection_counter / sim_tat.suc_txops, name='TAT')
+    # TAT
+    np.random.seed(sim_config['seed'])
+    sim_tat = MAPCsim(sim_config, mobility_config=mobility_config)
+    sim_tat.sta_mobility = sta_mobility
+    sim_tat.timestamp_to_stop = sim_config['timestamp_to_stop']
+    sim_tat.channel_matrix = channel_matrix.copy()
+    sim_tat.sta_queue_timeline = copy.deepcopy(stas_arrivals_matrix)
+    sim_tat.simulation_system = 'csr'
+    sim_tat.scheduler = 'tat'
+    sim_tat.cgs_stas = copy.deepcopy(cgs_stas)
+    sim_tat.tx_power_matrix = copy.deepcopy(tx_power_matrix)
+    sim_tat.access_category = traffic_config['edca_access_category']
+    sim_tat.alpha = 0.5
+    sim_tat.beta = 0.5
+    sim_tat.init_settings()
+    sim_tat.run()
+    tat_delay = sim_tat.delay_vector
+    # plot_histogram(sim_tat.priority_selection_counter / sim_tat.suc_txops, name='TAT')
 
-    # ### Add the other strategies
-    # delay_dict.update({
-    #     # 'edca': edca_delay,
-    #     'mnp': mnp_delay,
-    #     'op': op_delay,
-    #     'tat': tat_delay,
-    # })
+    ### Add the other strategies
+    delay_dict.update({
+        # 'edca': edca_delay,
+        'mnp': mnp_delay,
+        'op': op_delay,
+        'tat': tat_delay,
+    })
 
     print(f'Iteration: {traffic_iter}')
     print('--- 99th percentile delay results ---')
@@ -326,80 +305,25 @@ def evaluate_models(models, sim_config, traffic_config, learning_config, mobilit
     for model_id in models:
         np.random.seed(sim_config['seed'])  # Ensure fairness across runs
         
+        model = {'model_id': model_id, 'model_type': 'best_model.zip'}
+        name = 'ML-G'
 
-        # if model_id.startswith('linucb'):
-        if os.path.exists(os.path.join(learning_config['log_dir'], 'mab', campaign, sim, model_id)):
-            # model = {'model_id': model_id + str(iter_number) + '.pkl'}
-            # trained_model_path = os.path.join(learning_config['log_dir'], 'mab', campaign, sim, model['model_id'])
-            trained_model_path = os.path.join(learning_config['log_dir'], 'mab', campaign, sim, model_id, 'linucb' + str(iter_number) + '.pkl')
-
-            sim_ML = mab.evaluation(
-                traffic_config, 
-                sim_config, 
-                learning_config,
-                mobility_config,
-                sta_mobility,
-                channel_matrix, 
-                map_matrix, 
-                tx_power_matrix_temp, 
-                comb_ok,
-                stas_arrivals_matrix, 
-                trained_model_path
-            )
-            sim_ML.traffic_analysis()
-            delay_vector = sim_ML.delay_vector
-            # plot_histogram(sim_ML.priority_selection_counter / sim_ML.suc_txops, name=model_id)
-
-        else:
-            model = {'model_id': model_id, 'model_type': 'best_model.zip'}
-            match model_id:
-                case '6cbu38xr':   # general model
-                    model['model_type'] = 'model_9830400_steps.zip'       # best
-                    name = 'ML-G'
-                case 'jpjju421': # Expert deployment 0
-                    model['model_type'] = 'model_9984000_steps.zip'       # best
-                case '145tabtw': # Expert deployment 3
-                    model['model_type'] = 'model_8601600_steps.zip'       # model_6553600_steps     model_8601600_steps [ok]        model_8652800_steps
-                    name = 'ML-E'
-                case 't46rm3le': # general 8 stas
-                    model['model_type'] = 'model_9420800_steps.zip'       
-                    name = 'ML-G'
-                case 'tffl24sj': # general 12 stas
-                    model['model_type'] = 'model_6451200_steps.zip'
-                    name = 'ML-G'
-                case '3x0yf1u0': # general 20 stas
-                    model['model_type'] = 'model_6784000_steps.zip'       # model_6553600_steps
-                    name = 'ML-G'
-                # ----------------- New models (new reward function || 2N + M*N dim obs) -----------------
-                case 'k2imj5uu': # general 16 stas v2
-                    model['model_type'] = 'model_8985600_steps.zip'       # model_6553600_steps
-                    name = 'ML-G'
-                case 'jdyap8ia':
-                    model['model_type'] = 'model_6912000_steps.zip'       # model_6553600_steps
-                    name = 'ML-G'
-                case 'k30lzbtv': # new reward 1 seconds per episode
-                    model['model_type'] = 'model_9856000_steps.zip'       
-                    name = 'ML-G'
-                case _:
-                    model['model_type'] = 'best_model.zip'  # Default case for other models
-                    name = model_id
-
-            sim_ML = rl_agent.evaluation(
-                traffic_config, 
-                sim_config, 
-                learning_config,
-                mobility_config,
-                sta_mobility,
-                channel_matrix, 
-                map_matrix, 
-                tx_power_matrix_temp, 
-                comb_ok,
-                stas_arrivals_matrix, 
-                model
-            )
-            sim_ML.simulator.traffic_analysis()
-            delay_vector = sim_ML.simulator.delay_vector
-            # plot_histogram(sim_ML.simulator.priority_selection_counter / sim_ML.simulator.suc_txops, name=name)
+        sim_ML = rl_agent.evaluation(
+            traffic_config, 
+            sim_config, 
+            learning_config,
+            mobility_config,
+            sta_mobility,
+            channel_matrix, 
+            map_matrix, 
+            tx_power_matrix_temp, 
+            comb_ok,
+            stas_arrivals_matrix, 
+            model
+        )
+        sim_ML.simulator.traffic_analysis()
+        delay_vector = sim_ML.simulator.delay_vector
+        # plot_histogram(sim_ML.simulator.priority_selection_counter / sim_ML.simulator.suc_txops, name=name)
 
         
         delays[model_id] = delay_vector
