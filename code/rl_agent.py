@@ -273,6 +273,7 @@ def training(traffic_config, sim_config, learning_config, mobility_config=None):
         verbose=2,
     )
 
+    # Stop training if no improvement in the model is observed for a certain number of evaluations
     stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=30, min_evals=20, verbose=1)
 
     if sim_config['save_model']:
@@ -283,7 +284,7 @@ def training(traffic_config, sim_config, learning_config, mobility_config=None):
                                 n_eval_episodes= 10, # Number of parallel environments for evaluation
                              )
         
-        # # Save a checkpoint every 1000 steps
+        # # Save a checkpoint every -> save_freq * n_envs    steps
         # checkpoint_callback = CheckpointCallback(
         # save_freq=2560,   # 
         # save_path=os.path.join(learning_config['log_dir'], "models", logging_run.id),
@@ -292,8 +293,8 @@ def training(traffic_config, sim_config, learning_config, mobility_config=None):
         # save_vecnormalize=True,
         # verbose=2,
         # )
-
         callbacklist = CallbackList([eval_callback, logging_callback])
+        # callbacklist = CallbackList([eval_callback, checkpoint_callback, logging_callback])
     else:
         callbacklist = CallbackList([logging_callback])
     
@@ -309,7 +310,6 @@ def training(traffic_config, sim_config, learning_config, mobility_config=None):
     model.save(os.path.join(learning_config['log_dir'], "models", logging_run.id, "final_model.zip"))
 
     logging_run.finish()
-
 
 def evaluation(traffic_config, sim_config, learning_config,  mobility_config, sta_mobility, channel_matrix, map_matrix, tx_power_matrix_temp, comb_ok, stas_arrivals_matrix, model):
     """
@@ -403,7 +403,7 @@ if __name__ == '__main__':
     # Simulation Configuration
     sim_config = {
         'filtering': True,
-        'save_model': False,
+        'save_model': True,
         'use_preloaded_deployments': False,
         'use_preloaded_traffic': False,
         'ap_number': ap_number,
@@ -420,7 +420,7 @@ if __name__ == '__main__':
         'nss': SYSTEM.NSS,
         'nsc': nsc,
         'training_flag': True,
-        'timestamp_to_stop': 1, # [1,5] seconds, set equal to 5 for better generalization, but it will increase the training time
+        'timestamp_to_stop': 5, # [1,5] seconds, set equal to 5 for better generalization, but it will increase the training time
         'frame_length': MAC.FRAME_LENGTH,
         'event_number': int(1E5), # Number of events considered for traffic generation
         'seed': 1,
@@ -432,7 +432,7 @@ if __name__ == '__main__':
     learning_config = {
         'log_dir': os.path.join(base_dir, 'trained_models'),
         'parallel_envs': min(os.cpu_count(), 10),  # Number of parallel environments
-        'total_timesteps': int(1E6),
+        'total_timesteps': int(2E6),
         'simulator_attr': 'simulator',
         'project_name': args['project_name'],
         'run_id': args['run_id'],
