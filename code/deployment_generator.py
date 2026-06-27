@@ -1,19 +1,16 @@
 import numpy as np
 import re
-import matplotlib.pyplot as plt
-import seaborn as sns
 import time
 from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm  # Import tqdm for progress bar
-from numpy.random import SeedSequence, default_rng
+from numpy.random import SeedSequence
 
 import utils as utils
-from constants import SYSTEM, MAC, CHANNEL
+from constants import SYSTEM
 import h5py
 import os
 
 ################## Deployment Generator ###########################
-
 
 # Helper function to simulate one iteration
 def deployment_generator(sim_config, seed, show_plot=False):
@@ -126,8 +123,6 @@ if __name__ == '__main__':
                 channel_matrix_save[:, :, iter_number] = channel_matrix
             except Exception as e:
                 print(f"Error in iteration {iter_number}")
-
-
 
     # Define output folder
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # go up one level
