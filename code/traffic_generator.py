@@ -5,14 +5,9 @@ import numpy as np
 import re
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm import tqdm
-from numpy.random import SeedSequence, default_rng
-import json
-
+from numpy.random import SeedSequence
 import utils as utils
-
-# Import constants
-from constants import SYSTEM, MAC, CHANNEL
-
+from constants import SYSTEM, MAC
 from deployment_generator import deployment_generator
 
 global sta_matrix_save, channel_matrix_save
@@ -162,7 +157,6 @@ def save_to_h5(sim_config, traffic_config, traffic_profile_per_sta, stas_arrival
         # Store traffic profile per STA as h5 attribute
         h5file.attrs['traffic_profile_per_sta'] = str(traffic_profile_per_sta)
 
-
 def simulate_iterations(traffic_config, sim_config, seed, iter_number=None):
     """
     Simulates one iterations and returns the delay vectors for the different strategies.
@@ -172,22 +166,18 @@ def simulate_iterations(traffic_config, sim_config, seed, iter_number=None):
     seed (int): Random seed for the simulation.
     iter_number (int): Iteration number for the deployment.
 
-    """ 
-    iter_number = 3
-    print('-----------------------------------------')
-    print('-----------------------------------------')
-    print(f"deployment{iter_number}...")
+    """
 
     # # Set the seed
     np.random.seed(seed)
 
-    ap_matrix, sta_matrix, association, channel_matrix = deployment_generator(sim_config, seed)
+    _, sta_matrix, _, channel_matrix = deployment_generator(sim_config, seed)
 
     if sim_config['use_preloaded_deployments']:
         sta_matrix = sta_matrix_save[:, :, iter_number]
         channel_matrix = channel_matrix_save[:, :, iter_number]
 
-    traffic_iterations = 100
+    traffic_iterations = 1
     seed_seq = SeedSequence(seeds[iter_number]) if len(seeds) > 1 else SeedSequence(seeds[0])
     traffic_seeds = seed_seq.generate_state(traffic_iterations)
 
@@ -242,7 +232,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     sim = '30-16'  # Simulation name: 'APtoAPdistance-STA_NUMBER'
-    campaign = 'low[10,30]' # 'general[10,90]', 'expert[10,90]', 'low[10,30]', 'medium[30,50]', 'high[50,70]'
+    campaign = 'general[10,90]'
 
     # Scenario-related
     ap_number = 4
@@ -263,7 +253,7 @@ if __name__ == "__main__":
     h5file_deployments_path = os.path.join(base_dir, 'deployments_datasets', sim, 'deployment_datasets.h5')
 
     # Number of iterations
-    iterations = 1
+    iterations = 100
     seed_seq = SeedSequence(1)
     seeds = seed_seq.generate_state(iterations)
 
@@ -276,14 +266,11 @@ if __name__ == "__main__":
             min_load = 20.47
             max_load = 112.87
         case 16:
-            # min_load = 50.0
-            # max_load = 70.0
             min_load = 10.0
             max_load = 90.0
         case 20:
             min_load = 4.21
             max_load = 75.79 
-
 
     # Traffic Configuration 
     traffic_config = {
@@ -317,7 +304,6 @@ if __name__ == "__main__":
         'output_dir': os.path.join(base_dir, 'traffic_datasets', campaign, sim),
         'overheads' : utils.overheads_calc(traffic_config['edca_access_category'])
     }
-
 
     if sim_config['use_preloaded_deployments']:
         with h5py.File(h5file_deployments_path, 'r') as f:
