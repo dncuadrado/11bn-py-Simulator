@@ -6,13 +6,8 @@ import copy
 from traffic_generator import traffic_generator
 from utils import get_association, cg_creation_tpc, get_channel_coefficient, get_channel_coefficient_bss, generate_sta_mobility, plot_mobility_trajectories
 from deployment_generator import deployment_generator
-
-# Import constants
-from constants import SYSTEM, MAC, CHANNEL
-
 import pandas as pd
 import matplotlib.pyplot as plt
-
 from torch.distributions import Distribution 
 Distribution.set_default_validate_args(False)
 
@@ -28,11 +23,8 @@ class CustomEnv(gym.Env):
 
         self.training_flag = sim_config["training_flag"]  # Store flag
 
-        # Set the duration of each episode depending on whether it is a training or validation episode
-        if self.sim_config['training_flag'] == True:
-            self.learning_timestamp_to_stop = self.sim_config['learning_timestamp_to_stop']
-        else:
-            self.learning_timestamp_to_stop = self.sim_config['timestamp_to_stop']
+        # Set the duration of each episode
+        self.timestamp_to_stop = self.sim_config['timestamp_to_stop']
 
         # Loading the simulator into the environment
         self.simulator = simulator
@@ -51,19 +43,13 @@ class CustomEnv(gym.Env):
         # Initialize the state
         self.delays = np.zeros(n_stas, dtype=float)                      # delays
         self.queue_sizes = np.zeros(n_stas, dtype=float)                 # queue sizes
-        self.channel_coef = np.zeros(self.sim_config['sta_number'], dtype=float)
-        # self.channel_coef = np.zeros(n_stas*n_aps, dtype=float)
+        # self.channel_coef = np.zeros(self.sim_config['sta_number'], dtype=float)
+        self.channel_coef = np.zeros(n_stas*n_aps, dtype=float)
 
 
         # obs space
-        self.observation_space = spaces.Box(low=0, high=1, shape=(sim_config['sta_number']*3,), dtype=float)
-        # self.observation_space = spaces.Box(low=0, high=1, shape=(2*n_stas + len(self.channel_coef),), dtype=float)
-        # self.observation_space = spaces.Box(low=0, high=1, shape=(2*n_stas + 2*len(self.channel_coef),), dtype=float)
-
-        # self.observation_space = spaces.Dict({
-        #     "dynamic": spaces.Box(0, 1, shape=(sim_config['sta_number']*2,), dtype=np.float32),
-        #     "static":  spaces.Box(0, 1, shape=(len(self.channel_coef),), dtype=np.float32),
-        # })
+        # self.observation_space = spaces.Box(low=0, high=1, shape=(sim_config['sta_number']*3,), dtype=float)
+        self.observation_space = spaces.Box(low=0, high=1, shape=(2*n_stas + len(self.channel_coef),), dtype=float)
 
         self.step_number = int(0)
 
@@ -75,12 +61,9 @@ class CustomEnv(gym.Env):
 
         self.reward_shaping: list = []
         self.long_term_reward: list = []
-        self.throughput_reward: list = []
         self.reward: list = []
 
-        self.w_throughput: float = learning_config['w_throughput']
         self.w_long_term: float = learning_config['w_long_term']
-        self.w_shaping_coef: float = learning_config['w_shaping_coef']
 
         self.window_size: int = learning_config['window_size']
         self.historical_delay: list = []
@@ -129,8 +112,8 @@ class CustomEnv(gym.Env):
                 )  
 
         # Validate traffic
-        if any(stas_arrivals_matrix[i][-1] < self.learning_timestamp_to_stop for i in range(self.sim_config['sta_number'])):
-            raise ValueError(f"Traffic should last more than {self.learning_timestamp_to_stop} seconds")                  
+        if any(stas_arrivals_matrix[i][-1] < self.timestamp_to_stop for i in range(self.sim_config['sta_number'])):
+            raise ValueError(f"Traffic should last more than {self.timestamp_to_stop} seconds")                  
 
         # Loading the traffic dataset into the buffers in the simulator
         self.simulator.sta_queue_timeline = stas_arrivals_matrix
@@ -152,7 +135,6 @@ class CustomEnv(gym.Env):
 
         self.reward_shaping = []
         self.long_term_reward = []
-        self.throughput_reward = []
         self.reward = []
 
         # Get the observation
@@ -167,7 +149,6 @@ class CustomEnv(gym.Env):
         if self.historical_delay[0] <= 0:
             raise ValueError(
                 "Initial historical delay must contain positive values.")
-
 
         # Optionally we can pass additional info
         info = {}
@@ -190,9 +171,6 @@ class CustomEnv(gym.Env):
         
         # Execute the action
         self.simulator.run_step(self.agent_decision)
-
-        # if self.agent_decision is None:
-        #     self.simulator.sim_timeline += 48E-6 + 34E-6 + 9E-6  # the agent decides to wait a little more (no tx) ---> fake_frame + DIFS + Te
             
         # Forward the simulation
         self.simulator.sim_forward()
@@ -204,7 +182,7 @@ class CustomEnv(gym.Env):
         reward = self.get_reward()
 
         # Check termination conditions
-        terminated = truncated = bool(self.simulator.sim_timeline >= self.learning_timestamp_to_stop)
+        terminated = truncated = bool(self.simulator.sim_timeline >= self.timestamp_to_stop)
 
         info = {}
         if terminated or truncated:
@@ -215,13 +193,9 @@ class CustomEnv(gym.Env):
             info['worst_percentile99'] = max(prctile99)
             info['mean_rew_shaping'] = np.mean(self.reward_shaping)
             info['mean_long_term_rew'] = np.mean(self.long_term_reward)
-            info['mean_throughput_rew'] = np.mean(self.throughput_reward)
             info['mean_reward'] = np.mean(self.reward)
 
             # self.plot_reward_trend()
-
-
-
         return obs, reward, terminated, truncated, info
     
     def get_action(self, action):
@@ -233,8 +207,9 @@ class CustomEnv(gym.Env):
         """
         uni = self.simulator.cgs_stas[action]
 
-        if uni is None:    # EMPTY ACTION, USED FOR WAITING MORE TIME TO ALLOW THE QUEUES TO FILL
-            # ValueError("Empty action received, this should not happen. The agent should always choose a valid action.")
+        if uni is None:    # EMPTY ACTION, TODO: IT COULD BE USED FOR WAITING MORE TIME TO ALLOW THE QUEUES TO FILL
+            # MaskeablePPO should not select an empty action, but if it happens, we can handle it here
+            ValueError("Empty action received, this should not happen. The agent should always choose a valid action.")
             self.agent_decision = None
         else:
             sta_rx = [sta for sta in uni if self.simulator.first_pos_timestamp[sta] <= self.simulator.sim_timeline]
@@ -255,11 +230,14 @@ class CustomEnv(gym.Env):
         self.queue_sizes = np.array([min(len(self.simulator.get_queue(sta))/1E4,1) if self.simulator.first_pos_timestamp[sta] <= self.simulator.sim_timeline else 0 for sta in range(self.sim_config['sta_number'])])
  
         # Delays
-        self.delays = np.array([(self.simulator.sim_timeline - self.simulator.first_pos_timestamp[sta]) / float(self.learning_timestamp_to_stop) if self.simulator.first_pos_timestamp[sta] <= self.simulator.sim_timeline else 0.0 for sta in range(self.sim_config['sta_number'])])
+        self.delays = np.array([(self.simulator.sim_timeline - self.simulator.first_pos_timestamp[sta]) / float(self.timestamp_to_stop) if self.simulator.first_pos_timestamp[sta] <= self.simulator.sim_timeline else 0.0 for sta in range(self.sim_config['sta_number'])])
         
-        # Channel coefficients
-        self.channel_coef = [r / 0.005 for r in get_channel_coefficient_bss(self.simulator.channel_matrix_last_estimation, range(self.sim_config['sta_number']), get_association(self.sim_config['association'], range(self.sim_config['sta_number'])))] # RSSI normalized to 0-1          0.005 is the minimum channel coeficient, i.e., no walls, distance= 1m
-        # self.channel_coef = [r / 0.005 for r in get_channel_coefficient(self.simulator.channel_matrix_last_estimation)] # RSSI normalized to 0-1          0.005 is the minimum channel coeficient, i.e., no walls, distance= 1m
+        ### Channel coefficients
+        # Consider only self channel coefficients, i.e., the channel coefficients of the STAs with their associated APs
+        # self.channel_coef = [r / 0.005 for r in get_channel_coefficient_bss(self.simulator.channel_matrix_last_estimation, range(self.sim_config['sta_number']), get_association(self.sim_config['association'], range(self.sim_config['sta_number'])))] # 0.005 is the minimum channel coeficient, i.e., no walls, distance= 1m
+        
+        # Consider all channel coefficients, i.e., the channel coefficients of the STAs with all APs
+        self.channel_coef = [r / 0.005 for r in get_channel_coefficient(self.simulator.channel_matrix_last_estimation)] # 0.005 is the minimum channel coeficient, i.e., no walls, distance= 1m
 
 
         obs = np.concatenate(
@@ -267,22 +245,12 @@ class CustomEnv(gym.Env):
             axis=0
         ).astype(np.float32)
 
-        # # Observation
-        # obs = np.concatenate(
-        #     (self.delays, self.queue_sizes, self.channel_coef, self.assoc_onehot.flatten()), 
-        #     axis=0
-        # ).astype(np.float32)
-
-
-
         return obs
     
     def get_reward(self):
         """ Compute the reward """
 
         ################################################################
-        
-
         # # # Compute the short term reward (for reward shaping)
         reward_shaping = np.min(self.simulator.first_pos_timestamp) - self.last_txop_timestamp   
 
@@ -298,80 +266,24 @@ class CustomEnv(gym.Env):
         # Update last txop timestamp
         self.last_txop_timestamp = np.min(self.simulator.first_pos_timestamp)
         
-
         # long term reward
         current_worst_delay = self.simulator.sim_timeline - np.min(self.simulator.first_pos_timestamp)
-        # long_term_reward = min(0.001/(current_worst_delay + 1E-6),1.0)
-        
-
-        # throughput reward
-        throughput_reward = self.w_throughput * self.simulator.throughput_txop  # throughput in Mbps
-        
-        ####################################################################################
-
-        # if any(self.simulator.per_txop_sta_tx_packets<0):
-        #     throughput_reward = 0.0
-        #     delay_reward = 0.0
-        # else:
-        #     throughput_reward = self.w_throughput * self.simulator.throughput_txop  # throughput in Mbps
-        #     delay_reward = reward_shaping + long_term_reward
-
-        
-        # delay_reward = reward_shaping + long_term_reward
-        # reward = delay_reward + throughput_reward
-        
-
-        ####################################################################################
-        # window = self.historical_delay[-self.window_size:]
-        # data_mean = np.mean(window)
-        # # data_median = np.median(window)
-
-        # self.historical_delay.append(current_worst_delay)
-        # reward = data_mean - current_worst_delay
-
-
-
-        # D_cutoff, k = 0.2, 5        # scaled to [-1, 0.46]    
-        # D_cutoff, k = 2.5, 1.5    # scaled to [-1, 1]
         D_cutoff, k = 0.1, 5        # scaled to [-1, 0.23]
-        long_term_reward = self.w_long_term*(2 / (1 + np.exp(k * (current_worst_delay - D_cutoff))) - 1)  # Sigmoid reward based on delay
-        # long_term_reward = self.w_long_term*(1 / (1 + np.exp(k * (current_worst_delay))) )
+        long_term_reward = self.w_long_term*(2 / (1 + np.exp(k * (current_worst_delay - D_cutoff))) - 1)
+        # long_term_reward = min(0.001/(current_worst_delay + 1E-6),1.0)   # paper version (out of date)
 
 
-        delay_reward = long_term_reward
+        delay_reward = reward_shaping + 0.01*long_term_reward
+        reward = delay_reward
 
-        shaping_coef = self.w_shaping_coef if reward_shaping > 0 else 1.0
-
-        reward = delay_reward + shaping_coef*throughput_reward
-
-
-        # # Store results
+        # # Store results for plotting
+        # self.historical_delay.append(current_worst_delay)
         # self.reward_records.append({
         #     'step': self.step_number,
-        #     'mean': data_mean,
-        #     # 'median': data_median,
+        #     'mean': np.mean(self.historical_delay[-self.window_size:]),
         #     'new_point': current_worst_delay,
         #     'reward': reward
         # })
-
-
-        # Print summary every 10 steps
-        # if self.step_number % 10 == 0:
-        #     print(
-        #         f"Step {self.step_number:3d} | Mean: {data_mean:6.2f} | New: {current_worst_delay:6.2f} | Reward: {reward:+.3f}")
-
-
-        ####################################################################################
-        ####################################################################################
-
-        # if self.agent_decision is not None:
-        #     # if (not self.agent_decision[0]):
-        #     #     reward = -1.0  # Negative reward for no action or invalid actions
-
-        #     if any(self.simulator.per_txop_sta_tx_packets<0) or (not self.agent_decision[0]):
-        #         # If any STA has negative packets, it means that the action was invalid
-        #         reward = 0.0
-
 
         ################################################################
         
@@ -390,7 +302,6 @@ class CustomEnv(gym.Env):
         # Store rewards
         self.reward_shaping.append(reward_shaping)
         self.long_term_reward.append(long_term_reward)
-        self.throughput_reward.append(throughput_reward)
         self.reward.append(reward)
 
         return reward 
@@ -441,7 +352,6 @@ class CustomEnv(gym.Env):
         # mobility assignment
         self.simulator.sta_mobility = sta_mobility
 
-
         # Update channel matrix in the simulator
         self.simulator.channel_matrix = channel_matrix  # Channel matrix
 
@@ -456,10 +366,7 @@ class CustomEnv(gym.Env):
         )
 
         self.simulator.tx_power_matrix = tx_power_matrix_temp
-        # self.simulator.tx_power_matrix.append(None)
-
         self.simulator.comb_ok = comb_ok
-        # self.simulator.comb_ok = np.append(self.simulator.comb_ok, True)
 
     def association(self):
         n_aps = self.sim_config['ap_number']      # number of aps  
