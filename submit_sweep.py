@@ -1,68 +1,135 @@
 import wandb
 import os
 import subprocess
+import numpy as np
 
-# Define your sweep configuration inline or load it from a YAML if preferred
+
+project_name = "cg_size=2"
+
+
+# sweep_config = {
+#     'method': 'grid',
+#     'metric': {
+#         'name': 'custom/ep_worst_percentile99',
+#         'goal': 'minimize'
+#     },
+#     'parameters': {
+#         'window_size': {
+#             'values': np.random.randint(8, 21, size=10).tolist()
+#         },
+#     }
+# }
+
+
+# sweep_config = {
+#     'method': 'random',
+#     'metric': {
+#         'name': 'custom/ep_worst_percentile99',
+#         'goal': 'minimize'
+#     },
+#     'parameters': {
+#         'w_throughput': {
+#             'distribution': 'log_uniform_values',  # Log-uniform distribution
+#             'min': 1.9e-8,
+#             'max': 2e-8
+#         },
+#     }
+# }
+
 sweep_config = {
     'method': 'random',
     'metric': {
-        'name': 'mean_reward',
-        'goal': 'maximize'
+        'name': 'custom/ep_worst_percentile99',
+        'goal': 'minimize'
     },
     'parameters': {
-        'n_steps': {
-            'min': 32,
-            'max': 2048, 
+        'w_shaping_coef': {
+            'distribution': 'log_uniform_values',  # Log-uniform distribution
+            'min': 2.5,
+            'max': 5.0
         },
     }
 }
 
-# Define sweep
-sweep_id = wandb.sweep(sweep_config, project="sb3-sweep")
 
+
+
+# # Sweep configuration using only valid n_steps/batch_size pairs
+# sweep_config = {
+#     'method': 'grid',  # or 'random' for simpler setups
+#     'metric': {
+#         'name': 'custom/ep_worst_percentile99',
+#         'goal': 'minimize'
+#     },
+#     'parameters': {
+#         'n_steps': {
+#             'values': [128, 256, 512, 1024, 2048]
+#             },
+#         'batch_size': {
+#             'values': [32, 64, 128, 256, 512, 1024, 2048],
+#             },
+#     }
+# }
+
+
+
+# Create or reuse sweep
+sweep_id = wandb.sweep(sweep_config, project=project_name)
+
+# sweep_id = 'o7v7h0oh'
+
+# --- SLURM job submission ---
 def submit_slurm_job(run_id, config):
+    os.makedirs(f"slurm_jobs/{sweep_id}", exist_ok=True)
+    os.makedirs(f"slurm_logs/{sweep_id}", exist_ok=True)
 
-    # Make sure folders exist
-    os.makedirs("slurm_jobs", exist_ok=True)
-    os.makedirs("slurm_logs", exist_ok=True)
+    stdout_log = f"slurm_logs/{sweep_id}/output_{run_id}.log"
+    stderr_log = f"slurm_logs/{sweep_id}/error_{run_id}.log"
 
-    # Build SLURM script
     job_script = f"""#!/bin/bash
-    #SBATCH --job-name={run_id}
-    #SBATCH -p high                    # short, medium, high, high-cpu
-    #SBATCH --nodes=1                      # Request 1 node
-    #SBATCH --ntasks=1                     # Single task
-    #SBATCH --cpus-per-task=4              # CPUs per task
-    #SBATCH --mem=20G                      # Memory allocation
+#SBATCH --job-name=sweep_{run_id}
+#SBATCH --output={stdout_log}
+#SBATCH --error={stderr_log}
+#SBATCH -p high
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=10
+#SBATCH --mem=18G
 
-    # Load Miniconda module
-    module load Miniconda3/4.9.2
+module load Miniconda3/4.9.2
+eval "$(conda shell.bash hook)"
+conda activate myenv
 
-    # Conda base
-    eval "$(conda shell.bash hook)"
+cd /home/dnunez/Papers/conference_ML_CSR/pythonCode/802.11bn-py-sim-ML
 
-    # Activate the conda environment
-    conda activate myenv
+# Run training script
+python3.10 -u /home/dnunez/Papers/conference_ML_CSR/pythonCode/802.11bn-py-sim-ML/code/rl_agent.py \\
+    --project_name {project_name} \\
+    --run_id {run_id} \\
+    --w_shaping_coef {config['w_shaping_coef']} \\
+"""
 
-    # Change to the required working directory
-    cd /home/dnunez/Papers/journal_ML_CSR/pythonCode
-
-    python3.10 -u /home/dnunez/Papers/journal_ML_CSR/pythonCode/11bn-py-Simulator/RLagent.py --run_id {run_id} --n_steps {config['n_steps']}
-    """
-
-    job_path = f"slurm_jobs/{run_id}.sh"
+    job_path = f"slurm_jobs/{sweep_id}/{run_id}.sh"
     with open(job_path, "w") as f:
         f.write(job_script)
 
     subprocess.run(["sbatch", job_path])
 
-def train_agent():
-    with wandb.init() as run:
-        config = run.config
-        run_id = run.id
-        submit_slurm_job(run_id, config)
-        print(f"Launching SLURM job: run_{run_id}")
-        
 
-# Launch the sweep agent
-wandb.agent(sweep_id, function=train_agent, count=5)
+# --- W&B agent logic ---
+def train_agent():
+    run = wandb.init()
+    config = run.config
+    run_id = run.id
+
+    # # Only run if valid n_steps % batch_size == 0
+    # if config.n_steps % config.batch_size != 0:
+    #     print(f"Invalid pair: n_steps={config.n_steps}, batch_size={config.batch_size} — Skipping")
+    #     run.finish(exit_code=0)
+    #     return
+
+    submit_slurm_job(run_id, config)
+
+
+# Launch agent to sample and dispatch jobs
+wandb.agent(sweep_id, function=train_agent, count=14, project=project_name)

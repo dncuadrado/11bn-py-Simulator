@@ -6,47 +6,31 @@ import time
 import re
 import math
 from typing import Callable
-import Utils as utils
-from MAPCsim import *
-from CustomEnv import * # my Custom environment
-from TrafficGenerator import traffic_generator
-from DeploymentGenerator import deployment_generator
-from custom_feature_extractor import FiLMExtractor1, FiLMExtractor2, FiLMExtractor3, FiLMExtractor4, ProgressiveFiLMExtractor, SharedMLPExtractor, SharedMLPWithAttentionExtractor
+from constants import SYSTEM, MAC, CHANNEL
+import utils as utils
+from mapc_sim import *
+from custom_env import * 
+from traffic_generator import traffic_generator
+from deployment_generator import deployment_generator
 
 # RL Model (e.g., PPO)
 import torch as th
 from torch import nn
-import multiprocessing
-
-# from sbx import DDPG, DQN, PPO, SAC, TD3, TQC, CrossQ
-
-from stable_baselines3 import PPO, DQN, A2C
-from stable_baselines3.ppo import MlpPolicy, CnnPolicy, MultiInputPolicy 
-from stable_baselines3.a2c import MlpPolicy, CnnPolicy, MultiInputPolicy
-from stable_baselines3.dqn import MlpPolicy, CnnPolicy, MultiInputPolicy
-
-
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.env_checker import check_env 
+# from stable_baselines3.common.env_checker import check_env 
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecFrameStack
-from stable_baselines3.common.callbacks import BaseCallback, EvalCallback, CheckpointCallback, CallbackList, StopTrainingOnNoModelImprovement
+from stable_baselines3.common.vec_env import SubprocVecEnv #, DummyVecEnv, VecFrameStack, VecNormalize
+from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList, BaseCallback, EvalCallback, StopTrainingOnNoModelImprovement
+
+from sb3_contrib import MaskablePPO
+from stable_baselines3 import PPO, A2C
 
 # For logging and monitoring
 import argparse
 import wandb
 from wandb.integration.sb3 import WandbCallback
 
-from sb3_contrib import MaskablePPO, TRPO
-from sb3_contrib import RecurrentPPO
-from sb3_contrib.common.maskable.callbacks import MaskableEvalCallback
-from sb3_contrib.common.maskable.distributions import MaskableCategoricalDistribution
-
-# From example notebook
-import gymnasium as gym
-
-from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.results_plotter import load_results, ts2xy
+ 
 
 def parse_args_from_slurm():
     """
@@ -54,16 +38,21 @@ def parse_args_from_slurm():
     """
     # Parse command line arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('--project_name', type=str, default='sb3-HPC-NEW')
+    parser.add_argument('--project_name', type=str, default='cg_size=2')  # WandB project name
     parser.add_argument('--run_id', type=str, default=None)
-    parser.add_argument('--n_steps', type=int, default=128)                 # default --- 2048    128               
-    parser.add_argument('--batch_size', type=int, default=256)              # default --- 64        64
-    parser.add_argument('--initial_lr', type=float, default=6.5E-4)       # default --- 3e-4              
+    parser.add_argument('--n_steps', type=int, default=128)                 # default --- 2048                   
+    parser.add_argument('--batch_size', type=int, default=64)              # default --- 64        
+    parser.add_argument('--n_epochs', type=int, default=10)        # default --- 10
+    parser.add_argument('--initial_lr', type=float, default=4E-4)       # default --- 3e-4   || 4E-4             
     parser.add_argument('--learning_decay', type=str, default='cosine') # default --- 'cosine', 'linear', 'exp', 'square'
     parser.add_argument('--gamma', type=float, default=0.99)               # default --- 0.99
     parser.add_argument('--gae_lambda', type=float, default=0.95)          # default --- 0.95
     parser.add_argument('--clip_range', type=float, default=0.2)           # default --- 0.2
     parser.add_argument('--episode_threshold', type=int, default=0) 
+    parser.add_argument('--w_throughput', type=float, default=1.9E-8)
+    parser.add_argument('--w_long_term', type=float, default=1E-3)
+    parser.add_argument('--w_shaping_coef', type=float, default=1.5)
+    parser.add_argument('--window_size', type=int, default=10)
 
 
     args = parser.parse_args()
@@ -111,31 +100,77 @@ def schedule_learning_rate(initial_lr, learning_decay=None):
             raise ValueError(f"Unknown decay type: {learning_decay}")
     return schedule
 
-def create_env(traffic_config, sim_config, learning_config, channel_matrix, map_matrix, TxPowerMatrixTemp, comb_ok, seed, monitor_gym=False, training_flag=True):
+def create_env(traffic_config, sim_config, learning_config,  mobility_config=None, sta_mobility=None, seed=None, channel_matrix=None, map_matrix=None, tx_power_matrix_temp=None, comb_ok=None, monitor_gym=False, training_flag=True):
+    """
+    Create a custom environment for RL training or evaluation
+    """
+
+    if channel_matrix is None:
+        # Deployment-dependent data
+        sim_config['ap_matrix'], sta_matrix, sim_config['association'], channel_matrix = deployment_generator(sim_config, seed)
+
+        # utils.plot_deployment(ap_matrix, sta_matrix, sim_config['association'], sim_config['grid_value'], sim_config['walls'])
+
+        # Compute the CGs and TxPowerMatrix
+        map_matrix, tx_power_matrix_temp, comb_ok = utils.cg_creation_tpc(
+            sim_config['association'],
+            channel_matrix,
+            sim_config['max_tx_power_dbm'],
+            sim_config['nsc'],
+            is_filtering=sim_config['filtering'], 
+            tpc_method=sim_config['tpc_method'], # TPC Optimization method: None, 'PSO', 'IPOPT', 'DE'
+            cg_size=sim_config['cg_size']
+        )
+    if mobility_config and (sta_mobility is None):
+        sta_mobility = utils.generate_sta_mobility(
+            sim_config['ap_matrix'],
+            sta_matrix,
+            sim_config['walls'],
+            sim_config['grid_value'],
+            sim_config['association'],
+            sim_config['timestamp_to_stop'],
+            mobility_config['ch_realization_duration'],
+            mobility_config['speed'],
+            min_dist_to_ap=1.0,
+            max_attempts=30,
+            rng=np.random.default_rng(seed),
+            )
+        # utils.plot_mobility_trajectories(sta_mobility, sim_config['ap_matrix'], sim_config['association'], sim_config['walls'], sim_config['grid_value'])
+
 
     # Create copy of config to avoid mutation issues
-    env_sim_config = sim_config.copy()
+    env_traffic_config = copy.deepcopy(traffic_config)
+
+    env_sim_config = copy.deepcopy(sim_config)
     env_sim_config["training_flag"] = training_flag  # Set flag per environment
+
+    env_learning_config = copy.deepcopy(learning_config)
+
+    if not training_flag:
+        env_sim_config['timestamp_to_stop'] = 5  # evaluation duration
+        env_sim_config['learning_timestamp_to_stop'] = 5  # evaluation duration
+    
 
     # Creating the simulator instance  
 
-    simulator = MAPCsim(sim_config)  # new "MAPC simulator" object
-    simulator.simulation_system = 'RL'                 # 'EDCA' or 'CSR'
-    simulator.channel_matrix = channel_matrix
-    simulator.CGs_STAs = map_matrix         # Entire groups matrix (all posible combinations)
-    simulator.TxPowerMatrix = TxPowerMatrixTemp  # Entire Tx power matrix (all posible combinations)
-    simulator.comb_ok = comb_ok # Combinations ok 
-    simulator.accessCategory = traffic_config['EDCAaccessCategory']  # Access category of devices in the network
+    simulator = MAPCsim(env_sim_config, mobility_config=mobility_config)  # new "MAPC simulator" object
+    simulator.sta_mobility = sta_mobility
+    simulator.simulation_system = 'rl'                 # 'EDCA' or 'CSR'
+    simulator.channel_matrix = channel_matrix.copy()  # Channel matrix
+    simulator.cgs_stas = copy.deepcopy(map_matrix)         # Entire groups matrix (all posible combinations)
+    simulator.tx_power_matrix = copy.deepcopy(tx_power_matrix_temp)  # Entire Tx power matrix (all posible combinations)
+    simulator.comb_ok = copy.deepcopy(comb_ok) # Combinations ok 
+    simulator.access_category = traffic_config['edca_access_category']  # Access category of devices in the network
     simulator.timestamp_to_stop = sim_config['learning_timestamp_to_stop'] # training episode duration
 
     # Creating the custom environment
-    env = CustomEnv(traffic_config, env_sim_config, learning_config, simulator)  
+    env = CustomEnv(env_traffic_config, env_sim_config, env_learning_config, simulator)  
     # check_env(env)  # Check the environment
     if monitor_gym:
-        env = Monitor(env, learning_config['log_dir'], info_keywords=('total_percentile99', 'worst_percentile99','mean_rew_shaping', 'mean_long_term_rew','mean_reward'))  # Wrap the environment
+        env = Monitor(env, env_learning_config['log_dir'], info_keywords=('total_percentile99', 'worst_percentile99','mean_rew_shaping', 'mean_long_term_rew', 'mean_throughput_rew','mean_reward'))  # Wrap the environment
     return env
 
-def training(traffic_config, sim_config, learning_config, iter_number=None):
+def training(traffic_config, sim_config, learning_config, mobility_config=None):
     """
     Train the RL agent using the specified configuration
     """
@@ -145,46 +180,17 @@ def training(traffic_config, sim_config, learning_config, iter_number=None):
     # Set the seed
     np.random.seed(seed)
 
-    # Deployment-dependent data
-    AP_matrix, STA_matrix, sim_config['association'], channel_matrix = deployment_generator(sim_config, seed)
-
-    if sim_config['use_preloaded_deployments']:
-        # ### Load deployment data
-        h5file_deployments_path = os.path.join(os.getcwd(),'deployments datasets', sim, 'deployment_datasets.h5')
-        with h5py.File(h5file_deployments_path, 'r') as f:
-            STA_matrix_save = f['STA_matrix_save'][:]
-            channelMatrix_save = f['channelMatrix_save'][:]
-
-        STA_matrix = STA_matrix_save[:, :, iter_number]
-        channel_matrix = channelMatrix_save[:, :, iter_number]
-
-    # utils.PlotDeployment(AP_matrix, STA_matrix, sim_config['association'], sim_config['GRID_VALUE'], sim_config['walls'])
-
-    # Compute the CGs and TxPowerMatrix
-    map_matrix, TxPowerMatrixTemp, comb_ok = utils.CG_creationTPC(sim_config['AP_NUMBER'], 
-                                                sim_config['STA_NUMBER'], 
-                                                sim_config['PN_DBM'], 
-                                                sim_config['NSC'], 
-                                                sim_config['NSS'], 
-                                                sim_config['association'], 
-                                                channel_matrix, 
-                                                sim_config['MaxTxPower'], 
-                                                is_filtering=sim_config['filtering'], TPC_method=None, # TPC Optimization method: None, 'PSO', 'IPOPT', 'DE'
-                                                CG_size=4)  
-    # map_matrix.append(None)
-    # TxPowerMatrixTemp.append(None)    
-    # comb_ok = np.append(comb_ok, True)
-
     # Train the agent
-
     # Create log dir
     os.makedirs(learning_config['log_dir'], exist_ok=True)
 
     # Create training environments with training_flag=True
     train_env = make_vec_env(
         lambda: create_env(
-            traffic_config, sim_config, learning_config, 
-            channel_matrix, map_matrix, TxPowerMatrixTemp, comb_ok,
+            traffic_config, 
+            sim_config, 
+            learning_config, 
+            mobility_config=mobility_config,
             seed=np.random.randint(1, int(1E8)), 
             monitor_gym=True,
             training_flag=True  # Explicit training flag
@@ -193,19 +199,27 @@ def training(traffic_config, sim_config, learning_config, iter_number=None):
         vec_env_cls=SubprocVecEnv
     ) 
 
-    # train_env = VecFrameStack(train_env, n_stack=10)
-
     # # Create evaluation environments with training_flag=False
-    # eval_env = make_vec_env(
-    #     lambda: create_env(
-    #         traffic_config, sim_config, learning_config,
-    #         channel_matrix, map_matrix, TxPowerMatrixTemp, comb_ok,
-    #         seed=np.random.randint(1, int(1E8)),
-    #         training_flag=False  # Explicit evaluation flag
-    #     ),
-    #     n_envs=learning_config['parallel_envs'],  # Typically fewer envs for evaluation
-    #     vec_env_cls=SubprocVecEnv
-    # )
+    eval_env = make_vec_env(
+        lambda: create_env(
+            traffic_config, 
+            sim_config, 
+            learning_config, 
+            seed=np.random.randint(1, int(1E8)), 
+            monitor_gym=True,
+            training_flag=False 
+        ),
+        # n_envs=max(int(learning_config['parallel_envs']/2), 1),  # fewer envs for evaluation
+        n_envs=learning_config['parallel_envs'],  # for evaluation
+        vec_env_cls=SubprocVecEnv
+    ) 
+
+    # ### Normalize the environments
+    # train_env = VecNormalize(train_env, norm_obs=True, norm_reward=False, clip_obs=10.0)
+    # eval_env = VecNormalize(eval_env, norm_obs=True, norm_reward=False, clip_obs=10.0)
+
+    # ## sync normalization stats
+    # eval_env.obs_rms = train_env.obs_rms.copy()
 
     # Start W&B run 
     logging_run = wandb.init(project=learning_config['project_name'], 
@@ -214,8 +228,6 @@ def training(traffic_config, sim_config, learning_config, iter_number=None):
                     monitor_gym=False,
                     save_code=True,
                     )
-
-    
 
     learning_rate_scheduled = schedule_learning_rate(
         initial_lr=learning_config['initial_lr'],
@@ -231,28 +243,27 @@ def training(traffic_config, sim_config, learning_config, iter_number=None):
     # model_name = 'n505nvdg'       
     # model = PPO.load(os.path.join(learning_config['log_dir'], "models", model_name, "model_5401600_steps.zip"), env=train_env)
 
-    # policy_kwargs = dict(
-    #     features_extractor_class=FiLMExtractor2,
-    #     features_extractor_kwargs={"dyn_dim": sim_config['STA_NUMBER']*2, "stat_dim": sim_config['STA_NUMBER']},
-    #     net_arch=[128, 128],   # now only one “body”
-    # )
-
-    # policy_kwargs = dict(net_arch=dict(pi=[128, 128], vf=[64, 64])) 
-
-    # policy_kwargs = dict(
-    #     activation_fn=nn.LeakyReLU,  # Or nn.Tanh, nn.SiLU, etc.
-    #     net_arch=dict(pi=[128, 128], vf=[128, 128]),
-    #     share_features_extractor=True,  # Share the feature extractor between actor and critic
-    # )
-
     # policy_kwargs = {
     #     "features_extractor_class": SharedMLPWithAttentionExtractor,
     #     "features_extractor_kwargs": {
     #         "sta_number": sim_config['STA_NUMBER'],
     #         "ap_number": sim_config['AP_NUMBER'],
-    #         "hidden_dim": 64
+    #         "per_sta_out": 32,
+    #         "pooled_out": 64,
+    #         "hidden_dim": 128,
     #     },
+    #     "activation_fn": nn.Tanh,
+    #     "net_arch": dict(pi=[64, 64], vf=[64, 64]),
+    #     "share_features_extractor": True,
     # }
+    
+    # policy_kwargs = dict(
+    #     activation_fn=nn.Tanh,  # Or nn.Tanh, nn.SiLU, etc.
+    #     net_arch=dict(pi=[128, 128], vf=[128, 128]),
+    #     share_features_extractor=True,  # Share the feature extractor between actor and critic
+    # )
+
+    device = "cuda" if th.cuda.is_available() else "cpu"
 
     model = MaskablePPO("MlpPolicy", 
                         train_env, 
@@ -261,13 +272,14 @@ def training(traffic_config, sim_config, learning_config, iter_number=None):
                         seed=sim_config['seed'],
                         n_steps=learning_config['n_steps'],
                         batch_size=learning_config['batch_size'],
+                        n_epochs=learning_config['n_epochs'],
                         learning_rate=learning_rate_scheduled,
-                        # clip_range=clip_range_scheduled,
+                        clip_range=learning_config['clip_range'],
                         gamma=learning_config['gamma'],
                         gae_lambda=learning_config['gae_lambda'],
+                        device=device,
                         # policy_kwargs=policy_kwargs,
                         # ent_coef=0.02,
-                        # clip_range=0.15,
                         )
     
     # model = PPO("MlpPolicy", 
@@ -311,7 +323,8 @@ def training(traffic_config, sim_config, learning_config, iter_number=None):
     #                     tensorboard_log=os.path.join(learning_config['log_dir'], "tensorboard", logging_run.id), 
     #                     seed=sim_config['seed'],
     #                     learning_rate=learning_rate_scheduled,
-    #                     policy_kwargs=policy_kwargs,
+    #                     device=device,
+    #                     # policy_kwargs=policy_kwargs,
     #                     )
 
     # model = ACKTR("MlpPolicy", 
@@ -326,12 +339,17 @@ def training(traffic_config, sim_config, learning_config, iter_number=None):
     wandb.config.update({
         "n_steps": learning_config['n_steps'],
         "batch_size": learning_config['batch_size'],
+        "n_epochs": learning_config['n_epochs'],
         "initial_lr": learning_config['initial_lr'],
         "learning_decay": learning_config['learning_decay'],
         "gamma": learning_config['gamma'],
         "gae_lambda": learning_config['gae_lambda'],
         "clip_range": learning_config['clip_range'],
         "episode_threshold": learning_config['episode_threshold'],
+        "w_throughput": learning_config['w_throughput'],
+        "w_long_term": learning_config['w_long_term'],
+        "w_shaping_coef": learning_config['w_shaping_coef'],
+        "window_size": learning_config['window_size'],
     })
     
     ### Add WandbCallback
@@ -342,22 +360,17 @@ def training(traffic_config, sim_config, learning_config, iter_number=None):
         verbose=2,
     )
 
-    if sim_config['save_model']:
-        # stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=25, min_evals=20, verbose=1)
+    stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=30, min_evals=20, verbose=1)
 
-        # eval_callback = MaskableEvalCallback(eval_env, best_model_save_path=os.path.join(learning_config['log_dir'], "models", logging_run.id),
-        #                         log_path=learning_config['log_dir'], eval_freq=5120,
-        #                         deterministic=False, render=False,
-        #                         callback_after_eval=stop_train_callback,
-        #                         n_eval_episodes= 10, # Number of parallel environments for evaluation
-        #                      )
+    if sim_config['save_model']:
+
         
-        # eval_callback = EvalCallback(eval_env, best_model_save_path=os.path.join(learning_config['log_dir'], "models", logging_run.id),
-        #                         log_path=learning_config['log_dir'], eval_freq=5120,
-        #                         deterministic=False, render=False,
-        #                         callback_after_eval=stop_train_callback,
-        #                         n_eval_episodes= 10, # Number of parallel environments for evaluation
-        #                      )
+        eval_callback = EvalCallback(eval_env, best_model_save_path=os.path.join(learning_config['log_dir'], "models", logging_run.id),
+                                log_path=learning_config['log_dir'], eval_freq=5120,
+                                deterministic=False, render=False,
+                                callback_after_eval=stop_train_callback,
+                                n_eval_episodes= 50, # Number of parallel environments for evaluation
+                             )
         
         # Save a checkpoint every 1000 steps
         checkpoint_callback = CheckpointCallback(
@@ -369,13 +382,10 @@ def training(traffic_config, sim_config, learning_config, iter_number=None):
         verbose=2,
         )
 
-        callbacklist = CallbackList([checkpoint_callback, logging_callback])
+        callbacklist = CallbackList([checkpoint_callback,  eval_callback, logging_callback])
     else:
-        callbacklist = logging_callback
+        callbacklist = CallbackList([logging_callback])
     
-
-    
-
 
     # Train the model
     model.learn(
@@ -390,14 +400,30 @@ def training(traffic_config, sim_config, learning_config, iter_number=None):
     logging_run.finish()
 
 
-def evaluation(traffic_config, sim_config, learning_config, channel_matrix, map_matrix, TxPowerMatrixTemp, comb_ok, STAs_arrivals_matrix, traffic_profile_perSTA, model):
+def evaluation(traffic_config, sim_config, learning_config,  mobility_config, sta_mobility, channel_matrix, map_matrix, tx_power_matrix_temp, comb_ok, stas_arrivals_matrix, model):
     """
     Evaluate the trained model using the specified configuration
     """
-
-    # env = make_vec_env(create_env, n_envs=learning_config['parallel_envs'], vec_env_cls=DummyVecEnv)   # vec_env_cls = DummyVecEnv or SubprocVecEnv
-    env = create_env(traffic_config, sim_config, learning_config, channel_matrix, map_matrix, TxPowerMatrixTemp, comb_ok, sim_config['seed'], monitor_gym=False, training_flag=False)
-    obs, _ = env.reset(seed=sim_config['seed'], STAs_arrivals_matrix=STAs_arrivals_matrix, traffic_profile_perSTA=traffic_profile_perSTA, is_deloyment_fixed=True)  # Reset the environment
+    # Create the environment with training_flag=False
+    env = create_env(
+        traffic_config, 
+        sim_config, 
+        learning_config, 
+        mobility_config,
+        sta_mobility,
+        seed=sim_config['seed'],
+        channel_matrix=channel_matrix.copy(), 
+        map_matrix=copy.deepcopy(map_matrix), 
+        tx_power_matrix_temp=copy.deepcopy(tx_power_matrix_temp), 
+        comb_ok=copy.deepcopy(comb_ok), 
+        monitor_gym=False, 
+        training_flag=False
+        )
+    obs, _ = env.reset(
+        seed=sim_config['seed'], 
+        stas_arrivals_matrix=copy.deepcopy(stas_arrivals_matrix), 
+        is_deployment_fixed=True
+        )  # Reset the environment
 
     terminated = False
 
@@ -426,62 +452,77 @@ if __name__ == '__main__':
     numbers = re.findall(r'\d+', sim) # Extract numbers from the simulation name
 
     # Scenario-related
-    AP_NUMBER = 4
-    STA_NUMBER = int(numbers[1]) 
-    GRID_VALUE = int(numbers[0]) * 2
-    SCENARIO_TYPE = 'grid'
+    ap_number = 4
+    sta_number = int(numbers[1]) 
+    grid_value = int(numbers[0]) * 2
+    scenario_type = 'grid'
 
-    walls = np.array([[0, GRID_VALUE, GRID_VALUE/2, GRID_VALUE/2], 
-                    [GRID_VALUE/2, GRID_VALUE/2, 0, GRID_VALUE]])
-
-    # System-related parameters
-    TXOP_DURATION = 5E-3
-    PN_DBM = -95
-    CCA = -82
-    BW = 80
-    NSS = 2
-    FRAME_LENGTH = 12E3
+    walls = np.array([
+        [0, grid_value, grid_value/2, grid_value/2],
+        [grid_value/2, grid_value/2, 0, grid_value]
+    ])
 
     ### Channel-related parameters
-    MaxTxPower, NSC = utils.TXpowerCalc(BW, NSS)
+    max_tx_power_dbm, nsc = utils.tx_power_calc() # default bw=80 MHz, nss=2 spatial streams 
+
+    # Deployment data path
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # go up one level
+    h5file_deployments_path = os.path.join(base_dir, 'deployments_datasets', sim, 'deployment_datasets.h5')
+
+    match sta_number:
+        case 8:
+            min_load = 43.42
+            max_load = 156.58
+        case 12:
+            min_load = 20.47
+            max_load = 112.87
+        case 16:
+            min_load = 10.0
+            max_load = 90.0
+        case 20:
+            min_load = 4.21
+            max_load = 75.79 
+
 
     # Traffic Configuration 
     traffic_config = {
-        'load_min': 10,  # Minimum load in Mbps
-        'load_max': 90,  # Maximum load in Mbps
-        'EDCAaccessCategory': 'BE'
+        'load_min': min_load,  # Minimum load in Mbps
+        'load_max': max_load,  # Maximum load in Mbps
+        'edca_access_category': 'BE'
     }
 
     # Simulation Configuration
     sim_config = {
-        'filtering': True,
+        'filtering': False,
         'save_model': True,
-        'use_preloaded_deployments': True,
+        'use_preloaded_deployments': False,
         'use_preloaded_traffic': False,
-        'AP_NUMBER': AP_NUMBER,
-        'STA_NUMBER': STA_NUMBER,
-        'SCENARIO_TYPE': SCENARIO_TYPE,
-        'GRID_VALUE': GRID_VALUE,
+        'ap_number': ap_number,
+        'sta_number': sta_number,
+        'scenario_type': scenario_type,
+        'grid_value': grid_value,
         'walls': walls,
-        'MaxTxPower': MaxTxPower,
-        'TXOP_DURATION': TXOP_DURATION,
-        'PN_DBM': PN_DBM,
-        'CCA': CCA,
-        'NSS': NSS,
-        'NSC': NSC,
-        'learning_timestamp_to_stop': 5, # seconds
+        'max_tx_power_dbm': max_tx_power_dbm,
+        'tpc_method': None,  # TPC Optimization method: None, 'PSO'
+        'cg_size': 2,
+        'txop_duration': SYSTEM.TXOP_DURATION,
+        'pn_dbm': SYSTEM.PN_DBM,
+        'cca': SYSTEM.CCA,
+        'nss': SYSTEM.NSS,
+        'nsc': nsc,
+        'learning_timestamp_to_stop': 1, # seconds
         'training_flag': True,
-        'timestamp_to_stop': 5, # seconds
-        'FRAME_LENGTH': FRAME_LENGTH,
-        'EVENT_NUMBER': int(1E5), # Number of events considered for traffic generation
+        'timestamp_to_stop': 1, # seconds
+        'frame_length': MAC.FRAME_LENGTH,
+        'event_number': int(1E5), # Number of events considered for traffic generation
         'seed': 1,
-        'output_dir': os.path.join(os.getcwd(), 'Results', sim),
-        'overheads' : utils.OverheadsCalc(traffic_config['EDCAaccessCategory'])   
+        'output_dir': os.path.join(base_dir, 'results', sim),
+        'overheads' : utils.overheads_calc(traffic_config['edca_access_category']),   
     }
 
     # Learning Configuration — base + overrides from CLI args
     learning_config = {
-        'log_dir': os.path.join(os.getcwd(), 'trained_models'),
+        'log_dir': os.path.join(base_dir, 'trained_models'),
         'parallel_envs': min(os.cpu_count(), 10),  # Number of parallel environments
         'total_timesteps': int(10E6),
         'simulator_attr': 'simulator',
@@ -489,17 +530,29 @@ if __name__ == '__main__':
         'run_id': args['run_id'],
         'n_steps': args['n_steps'],
         'batch_size': args['batch_size'],
+        'n_epochs': args['n_epochs'],
         'initial_lr': args['initial_lr'],
         'learning_decay': args['learning_decay'],
         'gamma': args['gamma'],
         'gae_lambda': args['gae_lambda'],
         'clip_range': args['clip_range'],  
         'episode_threshold': args['episode_threshold'],
+        'w_throughput': args['w_throughput'],
+        'w_long_term': args['w_long_term'],
+        'w_shaping_coef': args['w_shaping_coef'],
+        'window_size': args['window_size'],
     }
+
+    mobility_config = None
+    # mobility_config = {
+    #     'ch_realization_duration': 0.1,  # seconds
+    #     'ch_realizations_per_update': 10,
+    #     'speed' : 1  # meters per second
+    # }
     
     try:
         # Simulate the iterations
-        training(traffic_config, sim_config, learning_config, iter_number=3)
+        training(traffic_config, sim_config, learning_config, mobility_config)
     finally:
         if wandb.run is not None:
             wandb.finish()
