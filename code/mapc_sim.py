@@ -9,7 +9,8 @@ import copy
 
 class MAPCsim:
     """
-    Traffic class to handle the traffic generated for the STAs
+    MAPCsim class simulates a wireless network with multiple access points (APs) and stations (STAs).
+    It handles the simulation configuration, mobility, traffic generation, backoff mechanism, scheduling, and results analysis.
     """
 
     def __init__(self, sim_config, mobility_config=None):
@@ -440,52 +441,6 @@ class MAPCsim:
 
         return 
 
-    # def traffic_analysis(self):
-    #     """Analysis of the results."""
-
-    #     self.delay_per_sta = [[] for _ in range(self.sta_number)]  # Delay of each STA
-    #     self.delay_vector = []                                      # Delay matrix (all STAs)
-
-    #     for j in range(self.sta_number):  # Per STA Analysis
-
-    #         queue_timeline = self.sta_queue_timeline[j]
-    #         delivery_record = self.delivery_timestamp_record[j]
-    #         state_record = self.sta_queue_state[j]
-
-    #         # Separate transmitted and non-transmitted packets
-    #         transmitted_mask = (state_record == False)
-    #         not_transmitted_mask = (state_record == True)
-
-    #         # Ensure the packet arrivals higher than timestamp_to_stop are not considered pending
-    #         not_transmitted_mask[queue_timeline > self.timestamp_to_stop] = False  
-
-    #         # Calculate delays for transmitted packets
-    #         transmitted_delays = delivery_record[transmitted_mask] - queue_timeline[transmitted_mask]
-
-    #         # Check for negative or zero delays
-    #         if np.any(transmitted_delays <= 0):
-    #             raise ValueError("Delay cannot be negative or zero for transmitted packets")
-
-    #         # For untransmitted packets
-    #         pending_arrivals = queue_timeline[not_transmitted_mask]
-    #         pending_delays = self.timestamp_to_stop - pending_arrivals
-
-    #         if np.any(pending_delays <= 0):
-    #             raise ValueError("Pending packet delay is negative or zero; check this.")
-
-    #         # Concatenate both
-    #         all_delays = np.concatenate((transmitted_delays, pending_delays))
-
-    #         self.delay_per_sta[j] = all_delays
-    #         self.delay_vector = np.concatenate((self.delay_vector, all_delays))
-
-    #     # Per AP analysis (unchanged)
-    #     for jj in range(self.ap_number):
-    #         if self.txop_win_number[jj] == 0:
-    #             self.ap_collision_prob[jj] = 0
-    #         else:
-    #             self.ap_collision_prob[jj] = self.txop_collision[jj] / self.txop_win_number[jj]
-
     def traffic_analysis(self, warm_up_time=0.0):
         """Analysis of the results, considering only packets that arrived after warm_up_time.
 
@@ -688,10 +643,7 @@ class MAPCsim:
                     if self.simulation_system in ['csr', 'rl']:
                         if cur_idx % self.ch_realizations_per_update == 0:  # Time to update CGs and Tx power
                             self.channel_matrix_last_estimation = self.channel_matrix_fading.copy()
-                            self.update_cgs_and_tx_power()
-
-
-                    
+                            self.update_cgs_and_tx_power()         
         return 
         
     def run(self):
