@@ -516,7 +516,6 @@ if __name__ == "__main__":
         'cca': SYSTEM.CCA,
         'nss': SYSTEM.NSS,
         'nsc': nsc,
-        'learning_timestamp_to_stop': 5, # seconds
         'training_flag': False,
         'timestamp_to_stop': 5, # seconds
         'frame_length': MAC.FRAME_LENGTH,
