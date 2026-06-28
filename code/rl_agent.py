@@ -29,6 +29,7 @@ from stable_baselines3 import PPO, A2C
 import argparse
 import wandb
 from wandb.integration.sb3 import WandbCallback
+import uuid
 
  
 
@@ -55,7 +56,6 @@ def parse_args_from_slurm():
     args = parser.parse_args()
 
     return vars(args)
-
 
 def schedule_clip_range(
     clip_min_phase1: float = 0.1,
@@ -170,14 +170,47 @@ def training(traffic_config, sim_config, learning_config, mobility_config=None):
     Train the RL agent using the specified configuration
     """
 
-    seed = sim_config['seed']
-
     # Set the seed
+    seed = sim_config['seed']
     np.random.seed(seed)
 
-    # Train the agent
     # Create log dir
     os.makedirs(learning_config['log_dir'], exist_ok=True)
+
+    # Initialize W&B logging
+    if learning_config['wandb_log']:
+        # Start W&B run 
+        logging_run = wandb.init(project=learning_config['project_name'], 
+                        id=learning_config['run_id'], 
+                        sync_tensorboard=True,
+                        monitor_gym=False,
+                        save_code=True,
+                        )
+        run_id = logging_run.id
+        wandb.config.update({
+            "n_steps": learning_config['n_steps'],
+            "batch_size": learning_config['batch_size'],
+            "n_epochs": learning_config['n_epochs'],
+            "initial_lr": learning_config['initial_lr'],
+            "learning_decay": learning_config['learning_decay'],
+            "gamma": learning_config['gamma'],
+            "gae_lambda": learning_config['gae_lambda'],
+            "clip_range": learning_config['clip_range'],
+            "episode_threshold": learning_config['episode_threshold'],
+            "w_long_term": learning_config['w_long_term'],
+            "window_size": learning_config['window_size'],
+        })
+    
+        ### Add WandbCallback
+        logging_callback = WandbCallback(
+            gradient_save_freq=100,
+            model_save_path=os.path.join(learning_config['log_dir'], "models", run_id),
+            model_save_freq=100,
+            verbose=2,
+        )
+    else:
+        run_id = uuid.uuid4().hex[:8]
+        print(f"W&B logging is disabled. Using run_id: {run_id}")
 
     # Create training environments with training_flag=True
     train_env = make_vec_env(
@@ -208,14 +241,6 @@ def training(traffic_config, sim_config, learning_config, mobility_config=None):
         vec_env_cls=SubprocVecEnv
     ) 
 
-    # Start W&B run 
-    logging_run = wandb.init(project=learning_config['project_name'], 
-                    id=learning_config['run_id'], 
-                    sync_tensorboard=True,
-                    monitor_gym=False,
-                    save_code=True,
-                    )
-
     learning_rate_scheduled = schedule_learning_rate(
         initial_lr=learning_config['initial_lr'],
         learning_decay=learning_config['learning_decay']
@@ -227,6 +252,10 @@ def training(traffic_config, sim_config, learning_config, mobility_config=None):
                                                 switch_point=0.5
                                             )
     
+    # Paths
+    model_dir = os.path.join(learning_config['log_dir'], "models", run_id)
+    tensorboard_dir = os.path.join(learning_config['log_dir'], "tensorboard", run_id)
+
     # Uncomment the following lines to load a pre-trained model
     # model_name = 'n505nvdg'       
     # model = PPO.load(os.path.join(learning_config['log_dir'], "models", model_name, "model_5401600_steps.zip"), env=train_env)
@@ -234,72 +263,71 @@ def training(traffic_config, sim_config, learning_config, mobility_config=None):
     # Set device to GPU if available, else CPU
     device = "cuda" if th.cuda.is_available() else "cpu"
 
-    model = MaskablePPO("MlpPolicy", 
-                        train_env, 
-                        verbose=0, 
-                        tensorboard_log=os.path.join(learning_config['log_dir'], "tensorboard", logging_run.id), 
-                        seed=sim_config['seed'],
-                        n_steps=learning_config['n_steps'],
-                        batch_size=learning_config['batch_size'],
-                        n_epochs=learning_config['n_epochs'],
-                        learning_rate=learning_rate_scheduled,
-                        clip_range=learning_config['clip_range'],
-                        gamma=learning_config['gamma'],
-                        gae_lambda=learning_config['gae_lambda'],
-                        device=device,
-                        # policy_kwargs=policy_kwargs,
-                        # ent_coef=0.02,
-                        )
-
-    wandb.config.update({
-        "n_steps": learning_config['n_steps'],
-        "batch_size": learning_config['batch_size'],
-        "n_epochs": learning_config['n_epochs'],
-        "initial_lr": learning_config['initial_lr'],
-        "learning_decay": learning_config['learning_decay'],
-        "gamma": learning_config['gamma'],
-        "gae_lambda": learning_config['gae_lambda'],
-        "clip_range": learning_config['clip_range'],
-        "episode_threshold": learning_config['episode_threshold'],
-        "w_long_term": learning_config['w_long_term'],
-        "window_size": learning_config['window_size'],
-    })
-    
-    ### Add WandbCallback
-    logging_callback = WandbCallback(
-        gradient_save_freq=100,
-        model_save_path=os.path.join(learning_config['log_dir'], "models", logging_run.id),
-        model_save_freq=100,
-        verbose=2,
+    # Initialize PPO model
+    model = MaskablePPO(
+        "MlpPolicy",
+        train_env,
+        verbose=0,
+        tensorboard_log=tensorboard_dir,
+        seed=sim_config['seed'],
+        n_steps=learning_config['n_steps'],
+        batch_size=learning_config['batch_size'],
+        n_epochs=learning_config['n_epochs'],
+        learning_rate=learning_rate_scheduled,
+        clip_range=learning_config['clip_range'],
+        gamma=learning_config['gamma'],
+        gae_lambda=learning_config['gae_lambda'],
+        device=device,
     )
 
-    # Stop training if no improvement in the model is observed for a certain number of evaluations
-    stop_train_callback = StopTrainingOnNoModelImprovement(max_no_improvement_evals=30, min_evals=20, verbose=1)
+    # Callback container
+    callbacks = []
 
-    if sim_config['save_model']:
-        eval_callback = EvalCallback(eval_env, best_model_save_path=os.path.join(learning_config['log_dir'], "models", logging_run.id),
-                                log_path=learning_config['log_dir'], eval_freq=5120,
-                                deterministic=False, render=False,
-                                callback_after_eval=stop_train_callback,
-                                n_eval_episodes= 10, # Number of parallel environments for evaluation
-                             )
-        
-        # # Save a checkpoint every -> save_freq * n_envs    steps
-        # checkpoint_callback = CheckpointCallback(
-        # save_freq=2560,   # 
-        # save_path=os.path.join(learning_config['log_dir'], "models", logging_run.id),
-        # name_prefix="model",
-        # save_replay_buffer=True,
-        # save_vecnormalize=True,
-        # verbose=2,
-        # )
-        callbacklist = CallbackList([eval_callback, logging_callback])
-        # callbacklist = CallbackList([eval_callback, checkpoint_callback, logging_callback])
-    else:
-        callbacklist = CallbackList([logging_callback])
-    
+    # Early stopping callback
+    stop_train_callback = StopTrainingOnNoModelImprovement(
+        max_no_improvement_evals=30,
+        min_evals=20,
+        verbose=1
+    )
 
-    # Train the model
+    # Evaluation callback
+    if learning_config['save_best_model']:
+
+        eval_callback = EvalCallback(
+            eval_env,
+            best_model_save_path=model_dir,
+            log_path=learning_config['log_dir'],
+            eval_freq=5120,
+            deterministic=False,
+            render=False,
+            callback_after_eval=stop_train_callback,
+            n_eval_episodes=10,
+        )
+
+        callbacks.append(eval_callback)
+
+    # Checkpoint callback
+    if learning_config['checkpoint_log']:
+
+        checkpoint_callback = CheckpointCallback(
+            save_freq=2560,
+            save_path=model_dir,
+            name_prefix="model",
+            save_replay_buffer=True,
+            save_vecnormalize=True,
+            verbose=2,
+        )
+
+        callbacks.append(checkpoint_callback)
+
+    # W&B callback
+    if learning_config['wandb_log']:
+        callbacks.append(logging_callback)
+
+    # Convert to SB3 CallbackList if needed
+    callbacklist = CallbackList(callbacks) if callbacks else None
+
+    # Train
     model.learn(
         total_timesteps=learning_config['total_timesteps'],
         callback=callbacklist,
@@ -307,9 +335,10 @@ def training(traffic_config, sim_config, learning_config, mobility_config=None):
     )
 
     # Save the model after training
-    model.save(os.path.join(learning_config['log_dir'], "models", logging_run.id, "final_model.zip"))
+    model.save(os.path.join(learning_config['log_dir'], "models", run_id, "final_model.zip"))
 
-    logging_run.finish()
+    if learning_config['wandb_log']:
+        logging_run.finish()
 
 def evaluation(traffic_config, sim_config, learning_config,  mobility_config, sta_mobility, channel_matrix, map_matrix, tx_power_matrix_temp, comb_ok, stas_arrivals_matrix, model):
     """
@@ -403,7 +432,6 @@ if __name__ == '__main__':
     # Simulation Configuration
     sim_config = {
         'filtering': True,
-        'save_model': True,
         'use_preloaded_deployments': False,
         'use_preloaded_traffic': False,
         'ap_number': ap_number,
@@ -431,6 +459,9 @@ if __name__ == '__main__':
     # Learning Configuration — base + overrides from CLI args
     learning_config = {
         'log_dir': os.path.join(base_dir, 'trained_models'),
+        'save_best_model': True,  # Set to True to enable best-model saving via EvalCallback
+        'wandb_log': True,  # Set to True to enable W&B logging
+        'checkpoint_log': False,  # Set to True to enable checkpoint logging, saves model periodically
         'parallel_envs': min(os.cpu_count(), 10),  # Number of parallel environments
         'total_timesteps': int(2E6),
         'simulator_attr': 'simulator',
@@ -461,7 +492,7 @@ if __name__ == '__main__':
         # Simulate the iterations
         training(traffic_config, sim_config, learning_config, mobility_config)
     finally:
-        if wandb.run is not None:
+        if wandb.run:
             wandb.finish()
 
 
