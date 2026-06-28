@@ -207,6 +207,33 @@ def training(traffic_config, sim_config, learning_config, mobility_config=None):
         run_id = uuid.uuid4().hex[:8]
         print(f"W&B logging is disabled. Using run_id: {run_id}")
 
+
+    # # Create evaluation environments with training_flag=False
+    eval_env = None
+    if learning_config['save_best_model']:
+
+        total_envs = learning_config['parallel_envs']
+        eval_envs = learning_config['eval_envs']
+        train_envs = total_envs - eval_envs
+
+        assert train_envs > 0, "Not enough environments for training"
+
+        eval_env = make_vec_env(
+            lambda: create_env(
+                traffic_config, 
+                sim_config, 
+                learning_config, 
+                mobility_config=mobility_config,
+                seed=np.random.randint(1, int(1E8)), 
+                monitor_gym=True,
+                training_flag=False
+            ),
+            n_envs=eval_envs,
+            vec_env_cls=SubprocVecEnv
+        )
+    else:
+        train_envs = learning_config['parallel_envs']
+
     # Create training environments with training_flag=True
     train_env = make_vec_env(
         lambda: create_env(
@@ -218,23 +245,10 @@ def training(traffic_config, sim_config, learning_config, mobility_config=None):
             monitor_gym=True,
             training_flag=True  # Explicit training flag
         ),
-        n_envs=int(learning_config['parallel_envs'])-1,  # for training
+        n_envs=train_envs,    # for training
         vec_env_cls=SubprocVecEnv
     ) 
 
-    # # Create evaluation environments with training_flag=False
-    eval_env = make_vec_env(
-        lambda: create_env(
-            traffic_config, 
-            sim_config, 
-            learning_config, 
-            seed=np.random.randint(1, int(1E8)), 
-            monitor_gym=True,
-            training_flag=False 
-        ),
-        n_envs=1,  # for evaluation
-        vec_env_cls=SubprocVecEnv
-    ) 
 
     learning_rate_scheduled = schedule_learning_rate(
         initial_lr=learning_config['initial_lr'],
@@ -296,7 +310,7 @@ def training(traffic_config, sim_config, learning_config, mobility_config=None):
             deterministic=False,
             render=False,
             callback_after_eval=stop_train_callback,
-            n_eval_episodes=10,
+            n_eval_episodes=20,
         )
 
         callbacks.append(eval_callback)
@@ -443,7 +457,7 @@ if __name__ == '__main__':
         'nss': SYSTEM.NSS,
         'nsc': nsc,
         'training_flag': True,
-        'timestamp_to_stop': 5, # [1,5] seconds, set equal to 5 for better generalization, but it will increase the training time
+        'timestamp_to_stop': 5, # typically [1,5] seconds, set equal to 5 for better generalization, but it will increase the training time
         'frame_length': MAC.FRAME_LENGTH,
         'event_number': int(1E5), # Number of events considered for traffic generation
         'seed': 1,
@@ -455,9 +469,10 @@ if __name__ == '__main__':
     learning_config = {
         'log_dir': os.path.join(base_dir, 'trained_models'),
         'wandb_log': True,  # Set to True to enable W&B logging
-        'save_best_model': False,  # Set to True to enable best-model saving via EvalCallback
+        'save_best_model': True,  # Set to True to enable best-model saving via EvalCallback
         'checkpoint_log': False,  # Set to True to enable checkpoint logging, saves model periodically
         'parallel_envs': min(os.cpu_count(), 10),  # Number of parallel environments
+        'eval_envs': 4,
         'total_timesteps': int(2E6),
         'simulator_attr': 'simulator',
         'project_name': args['project_name'],
