@@ -69,10 +69,8 @@ def simulate_iterations(traffic_config, sim_config, learning_config, mobility_co
     deployment_summary (dict): Summary of the deployment.
     """ 
 
-    # iter_number = 3
     print('-----------------------------------------')
     print('-----------------------------------------')
-    # print(f"deployment{iter_number}...")
 
     # # Set the seed
     np.random.seed(seed)
@@ -106,7 +104,6 @@ def simulate_iterations(traffic_config, sim_config, learning_config, mobility_co
         sta_mobility = None
     
     
-
     # Compute the CGs and TxPowerMatrix
     map_matrix, tx_power_matrix_temp, comb_ok = utils.cg_creation_tpc(
         sim_config['association'], 
@@ -118,7 +115,7 @@ def simulate_iterations(traffic_config, sim_config, learning_config, mobility_co
         cg_size=sim_config['cg_size']
     )  
 
-    traffic_iterations = 1
+    traffic_iterations = 1 # Number of traffic iterations per deployment
     seed_seq = SeedSequence(seeds[iter_number]) if len(seeds) > 1 else SeedSequence(seeds[0])
     traffic_seeds = seed_seq.generate_state(traffic_iterations)
 
@@ -190,8 +187,8 @@ def run_traffic_iteration(
     delay_dict = {}
 
     # # Evaluate models
-    models = [] # best mab models (already evaluated)
-    models.append('6cbu38xr')  # general model 16 stas'
+    models = []
+
     ml_results = evaluate_models(models, sim_config, traffic_config, learning_config, mobility_config, sta_mobility,
                                 channel_matrix, map_matrix, tx_power_matrix_temp, comb_ok, stas_arrivals_matrix, iter_number)
     
@@ -287,7 +284,8 @@ def run_traffic_iteration(
     # print(f'Traffic Profile per STA: {traffic_profile_per_sta}')
     print('-----------------------------------------')
 
-    save_to_h5(sim_config['output_dir'], sim, iter_number, traffic_iter, delay_dict)
+    # Save the delay metrics to an HDF5 file
+    # save_to_h5(sim_config['output_dir'], sim, iter_number, traffic_iter, delay_dict)
 
     # Return traffic summary
     traffic_summary = {
@@ -371,7 +369,7 @@ if __name__ == "__main__":
     args = parse_args_from_slurm()
 
     sim = '30-16'
-    campaign = 'general[10,90]' # 'general[10,90]', 'expert[10,90]', 'low[10,30]', 'medium[30,50]', 'high[50,70]'
+    campaign = 'general[10,90]'
 
     ap_number = 4
     sta_number = int(re.findall(r'\d+', sim)[1])
@@ -434,7 +432,7 @@ if __name__ == "__main__":
         'walls': walls,
         'max_tx_power_dbm': max_tx_power_dbm,
         'tpc_method': None,  # TPC Optimization method: None, 'PSO'
-        'cg_size': ap_number,
+        'cg_size': 2,
         'txop_duration': SYSTEM.TXOP_DURATION,
         'pn_dbm': SYSTEM.PN_DBM,
         'cca': SYSTEM.CCA,
@@ -445,7 +443,7 @@ if __name__ == "__main__":
         'frame_length': MAC.FRAME_LENGTH,
         'event_number': int(1E5), # Number of events considered for traffic generation
         'seed': 1,
-        'output_dir': os.path.join(base_dir, 'results_for_tuning_structured', campaign, sim),
+        'output_dir': os.path.join(base_dir, 'results', campaign, sim),
         # 'output_dir': os.path.join(base_dir, 'results/mobility/0.1-5', sim),
         'overheads' : utils.overheads_calc(traffic_config['edca_access_category']),   
     }
