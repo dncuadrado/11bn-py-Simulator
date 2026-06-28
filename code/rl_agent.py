@@ -459,8 +459,8 @@ if __name__ == '__main__':
     # Learning Configuration — base + overrides from CLI args
     learning_config = {
         'log_dir': os.path.join(base_dir, 'trained_models'),
-        'save_best_model': True,  # Set to True to enable best-model saving via EvalCallback
         'wandb_log': True,  # Set to True to enable W&B logging
+        'save_best_model': False,  # Set to True to enable best-model saving via EvalCallback
         'checkpoint_log': False,  # Set to True to enable checkpoint logging, saves model periodically
         'parallel_envs': min(os.cpu_count(), 10),  # Number of parallel environments
         'total_timesteps': int(2E6),
