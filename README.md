@@ -121,7 +121,7 @@ The training process can be monitored via wandb API from https://wandb.ai. For t
 - `learning_config['wandb_log']: True`
 
 The following two files have been customized in order to show /custom statistics in Wandb:
-- In `stable_baselines3.common.monitor:101` add:
+- Change `stable_baselines3.common.monitor:102` by:
 
             ep_info = {
                 "r": round(ep_rew, 6), 
