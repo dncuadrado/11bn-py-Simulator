@@ -6,14 +6,6 @@ import time
 import re
 import math
 from typing import Callable
-from constants import SYSTEM, MAC, CHANNEL
-import utils as utils
-from mapc_sim import *
-from custom_env import * 
-from traffic_generator import traffic_generator
-from deployment_generator import deployment_generator
-
-# RL Model (e.g., PPO)
 import torch as th
 from torch import nn
 from stable_baselines3.common.env_util import make_vec_env
@@ -21,16 +13,19 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import SubprocVecEnv #, DummyVecEnv, VecFrameStack, VecNormalize
 from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList, BaseCallback, EvalCallback, StopTrainingOnNoModelImprovement
-
 from sb3_contrib import MaskablePPO
-from stable_baselines3 import PPO, A2C
-
 # For logging and monitoring
 import argparse
 import wandb
 from wandb.integration.sb3 import WandbCallback
 import uuid
 
+from constants import SYSTEM, MAC, CHANNEL
+import utils as utils
+from mapc_sim import *
+from custom_env import * 
+from traffic_generator import traffic_generator
+from deployment_generator import deployment_generator
  
 
 def parse_args_from_slurm():
