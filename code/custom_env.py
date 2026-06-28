@@ -195,6 +195,7 @@ class CustomEnv(gym.Env):
             info['mean_long_term_rew'] = np.mean(self.long_term_reward)
             info['mean_reward'] = np.mean(self.reward)
 
+            # Uncomment the following line to plot the reward trend at the end of each episode
             # self.plot_reward_trend()
         return obs, reward, terminated, truncated, info
     
@@ -273,31 +274,30 @@ class CustomEnv(gym.Env):
         # long_term_reward = min(0.001/(current_worst_delay + 1E-6),1.0)   # paper version (out of date)
 
 
-        delay_reward = reward_shaping + 0.01*long_term_reward
+        delay_reward = reward_shaping + long_term_reward
         reward = delay_reward
 
-        # # Store results for plotting
-        # self.historical_delay.append(current_worst_delay)
-        # self.reward_records.append({
-        #     'step': self.step_number,
-        #     'mean': np.mean(self.historical_delay[-self.window_size:]),
-        #     'new_point': current_worst_delay,
-        #     'reward': reward
-        # })
+        # Store results for plotting
+        self.historical_delay.append(current_worst_delay)
+        self.reward_records.append({
+            'step': self.step_number,
+            'mean': np.mean(self.historical_delay[-self.window_size:]),
+            'new_point': current_worst_delay,
+            'reward': reward
+        })
 
         ################################################################
-        
+        ### Debugging information
         # print(f"Step: {self.step_number} \n\
-        # # #       STAs - aps: {self.agent_decision} \n\
-        # # #       Queue sizes: {self.queue_sizes} \n\
-        # # #       Delays: {[(self.simulator.sim_timeline - self.simulator.first_pos_timestamp[sta]) if self.simulator.first_pos_timestamp[sta] <= self.simulator.sim_timeline else 0 for sta in range(self.sim_config['sta_number'])]} \n\
-        # # #       Transmitted packets: {self.simulator.per_txop_sta_tx_packets} \n\
-        # # #       Throughput reward: {throughput_reward}  \n\
-        # # #       Delay reward: {delay_reward} \n\
-        # # #       Current worst delay: {self.simulator.sim_timeline - np.min(self.simulator.first_pos_timestamp)} \n\
-        # # #       Timestamp: {self.simulator.sim_timeline} \n\
-        # # #       Total reward: {reward} \n\
-        # # #       -----------------------------------------------------------------------------------------------------")
+        #       STAs - aps: {self.agent_decision} \n\
+        #       Queue sizes: {self.queue_sizes} \n\
+        #       Delays: {[(self.simulator.sim_timeline - self.simulator.first_pos_timestamp[sta]) if self.simulator.first_pos_timestamp[sta] <= self.simulator.sim_timeline else 0 for sta in range(self.sim_config['sta_number'])]} \n\
+        #       Transmitted packets: {self.simulator.per_txop_sta_tx_packets} \n\
+        #       Delay reward: {delay_reward} \n\
+        #       Current worst delay: {self.simulator.sim_timeline - np.min(self.simulator.first_pos_timestamp)} \n\
+        #       Timestamp: {self.simulator.sim_timeline} \n\
+        #       Total reward: {reward} \n\
+        # -----------------------------------------------------------------------------------------------------")
 
         # Store rewards
         self.reward_shaping.append(reward_shaping)
@@ -380,7 +380,6 @@ class CustomEnv(gym.Env):
 
         return assoc_ids
     
-
     def plot_reward_trend(self):
         """
         Plots the reward trend over time.
