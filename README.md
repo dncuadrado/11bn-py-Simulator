@@ -109,7 +109,7 @@ python code/rl_agent.py
 The training process will:
 - Initialize the custom environment with deployment and traffic datasets
 - Train the PPO agent using the specified hyperparameters
-- Log training metrics to TensorBoard
+- Log training metrics to Wandb (if configured)
 - Save model checkpoints to `trained_models/models/`
 
 
@@ -150,8 +150,8 @@ For saving the model, two methods are available:
 
 #### Evaluation
 
-The model is evaluate from rl_agent.evaluation which is called from simulator_main.py
-Don't forget to add the proper name of the model to `model` list.   
+The model is evaluated from `rl_agent.evaluation()` method, which is also called from `simulator_main.py`
+Don't forget to add the proper name of the model to `model` list in `simulator_main.py`.    
 
 ### Configuration
 
