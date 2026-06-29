@@ -69,7 +69,7 @@ The simulator is organized into the following core components:
 ### Prerequisites
 
 - Python 3.7+
-- Required dependencies (see requirements)
+- Required dependencies (see requirements.txt)
 
 ### Installation
 
