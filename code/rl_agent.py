@@ -473,7 +473,7 @@ if __name__ == '__main__':
         'checkpoint_log': False,  # Set to True to enable checkpoint logging, saves model periodically
         'parallel_envs': min(os.cpu_count(), 10),  # Number of parallel environments
         'eval_envs': 4,
-        'total_timesteps': int(2E6),
+        'total_timesteps': int(5E6),
         'simulator_attr': 'simulator',
         'project_name': args['project_name'],
         'run_id': args['run_id'],
