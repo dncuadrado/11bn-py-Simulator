@@ -3,6 +3,7 @@ deployments_datasets/
 traffic_datasets/
 simulation_saves/
 trained_models/
+*results*
 
 # Experiment logs
 code/wandb/
